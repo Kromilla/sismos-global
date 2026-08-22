@@ -1,0 +1,132 @@
+export interface City {
+  id: string
+  name: string
+  country: string
+  lat: number
+  lon: number
+  /** Población metropolitana aproximada, en miles. */
+  popK: number
+}
+
+/**
+ * Ciudades de referencia para el cálculo de intensidad y amenaza sísmica.
+ * Se priorizan las que están sobre zonas sismogénicas activas, no las más
+ * pobladas del mundo: una megaciudad en un cratón estable no aporta nada aquí.
+ */
+export const CITIES: City[] = [
+  { id: 'santamarta', name: 'Santa Marta', country: 'Colombia', lat: 11.2408, lon: -74.199, popK: 560 },
+  { id: 'barranquilla', name: 'Barranquilla', country: 'Colombia', lat: 10.9685, lon: -74.7813, popK: 1290 },
+  { id: 'bucaramanga', name: 'Bucaramanga', country: 'Colombia', lat: 7.1193, lon: -73.1227, popK: 1140 },
+  { id: 'bogota', name: 'Bogotá', country: 'Colombia', lat: 4.711, lon: -74.0721, popK: 7900 },
+  { id: 'medellin', name: 'Medellín', country: 'Colombia', lat: 6.2442, lon: -75.5812, popK: 2600 },
+  { id: 'cali', name: 'Cali', country: 'Colombia', lat: 3.4516, lon: -76.532, popK: 2250 },
+  { id: 'pasto', name: 'Pasto', country: 'Colombia', lat: 1.2136, lon: -77.2811, popK: 400 },
+  { id: 'popayan', name: 'Popayán', country: 'Colombia', lat: 2.4448, lon: -76.6147, popK: 320 },
+  { id: 'quito', name: 'Quito', country: 'Ecuador', lat: -0.1807, lon: -78.4678, popK: 2010 },
+  { id: 'guayaquil', name: 'Guayaquil', country: 'Ecuador', lat: -2.1894, lon: -79.8891, popK: 2720 },
+  { id: 'lima', name: 'Lima', country: 'Perú', lat: -12.0464, lon: -77.0428, popK: 10000 },
+  { id: 'arequipa', name: 'Arequipa', country: 'Perú', lat: -16.409, lon: -71.5375, popK: 1080 },
+  { id: 'antofagasta', name: 'Antofagasta', country: 'Chile', lat: -23.6509, lon: -70.3975, popK: 425 },
+  { id: 'iquique', name: 'Iquique', country: 'Chile', lat: -20.2307, lon: -70.1357, popK: 230 },
+  { id: 'santiago', name: 'Santiago', country: 'Chile', lat: -33.4489, lon: -70.6693, popK: 6800 },
+  { id: 'valparaiso', name: 'Valparaíso', country: 'Chile', lat: -33.0472, lon: -71.6127, popK: 980 },
+  { id: 'concepcion', name: 'Concepción', country: 'Chile', lat: -36.827, lon: -73.0503, popK: 1000 },
+  { id: 'mendoza', name: 'Mendoza', country: 'Argentina', lat: -32.8895, lon: -68.8458, popK: 1100 },
+  { id: 'sanjuan', name: 'San Juan', country: 'Argentina', lat: -31.5375, lon: -68.5364, popK: 500 },
+  { id: 'cdmx', name: 'Ciudad de México', country: 'México', lat: 19.4326, lon: -99.1332, popK: 21800 },
+  { id: 'acapulco', name: 'Acapulco', country: 'México', lat: 16.8531, lon: -99.8237, popK: 790 },
+  { id: 'oaxaca', name: 'Oaxaca de Juárez', country: 'México', lat: 17.0732, lon: -96.7266, popK: 300 },
+  { id: 'guadalajara', name: 'Guadalajara', country: 'México', lat: 20.6597, lon: -103.3496, popK: 5200 },
+  { id: 'guatemala', name: 'Ciudad de Guatemala', country: 'Guatemala', lat: 14.6349, lon: -90.5069, popK: 3000 },
+  { id: 'sansalvador', name: 'San Salvador', country: 'El Salvador', lat: 13.6929, lon: -89.2182, popK: 1800 },
+  { id: 'managua', name: 'Managua', country: 'Nicaragua', lat: 12.1149, lon: -86.2362, popK: 1050 },
+  { id: 'sanjose', name: 'San José', country: 'Costa Rica', lat: 9.9281, lon: -84.0907, popK: 1400 },
+  { id: 'panama', name: 'Ciudad de Panamá', country: 'Panamá', lat: 8.9824, lon: -79.5199, popK: 1900 },
+  { id: 'portauprince', name: 'Puerto Príncipe', country: 'Haití', lat: 18.5944, lon: -72.3074, popK: 2800 },
+  { id: 'santodomingo', name: 'Santo Domingo', country: 'R. Dominicana', lat: 18.4861, lon: -69.9312, popK: 3500 },
+  { id: 'sanjuanpr', name: 'San Juan', country: 'Puerto Rico', lat: 18.4655, lon: -66.1057, popK: 2300 },
+  { id: 'caracas', name: 'Caracas', country: 'Venezuela', lat: 10.4806, lon: -66.9036, popK: 2900 },
+// --- Norteamérica ---
+  { id: 'anchorage', name: 'Anchorage', country: 'Estados Unidos', lat: 61.2181, lon: -149.9003, popK: 290 },
+  { id: 'seattle', name: 'Seattle', country: 'Estados Unidos', lat: 47.6062, lon: -122.3321, popK: 4000 },
+  { id: 'portland', name: 'Portland', country: 'Estados Unidos', lat: 45.5152, lon: -122.6784, popK: 2500 },
+  { id: 'sanfrancisco', name: 'San Francisco', country: 'Estados Unidos', lat: 37.7749, lon: -122.4194, popK: 4700 },
+  { id: 'losangeles', name: 'Los Ángeles', country: 'Estados Unidos', lat: 34.0522, lon: -118.2437, popK: 12500 },
+  { id: 'sandiego', name: 'San Diego', country: 'Estados Unidos', lat: 32.7157, lon: -117.1611, popK: 3300 },
+
+  // --- Asia oriental ---
+  { id: 'petropavlovsk', name: 'Petropávlovsk-Kamchatski', country: 'Rusia', lat: 53.0452, lon: 158.6483, popK: 180 },
+  { id: 'tokio', name: 'Tokio', country: 'Japón', lat: 35.6762, lon: 139.6503, popK: 37000 },
+  { id: 'sendai', name: 'Sendai', country: 'Japón', lat: 38.2682, lon: 140.8694, popK: 1090 },
+  { id: 'nagoya', name: 'Nagoya', country: 'Japón', lat: 35.1815, lon: 136.9066, popK: 9500 },
+  { id: 'osaka', name: 'Osaka', country: 'Japón', lat: 34.6937, lon: 135.5023, popK: 19000 },
+  { id: 'seul', name: 'Seúl', country: 'Corea del Sur', lat: 37.5665, lon: 126.978, popK: 25000 },
+  { id: 'taipei', name: 'Taipéi', country: 'Taiwán', lat: 25.033, lon: 121.5654, popK: 7000 },
+  { id: 'kaohsiung', name: 'Kaohsiung', country: 'Taiwán', lat: 22.6273, lon: 120.3014, popK: 2770 },
+  { id: 'pekin', name: 'Pekín', country: 'China', lat: 39.9042, lon: 116.4074, popK: 21900 },
+  { id: 'tangshan', name: 'Tangshan', country: 'China', lat: 39.6304, lon: 118.1804, popK: 7700 },
+  { id: 'chengdu', name: 'Chengdu', country: 'China', lat: 30.5728, lon: 104.0668, popK: 20900 },
+
+  // --- Sudeste asiático y Oceanía ---
+  { id: 'manila', name: 'Manila', country: 'Filipinas', lat: 14.5995, lon: 120.9842, popK: 14400 },
+  { id: 'cebu', name: 'Cebú', country: 'Filipinas', lat: 10.3157, lon: 123.8854, popK: 3000 },
+  { id: 'yakarta', name: 'Yakarta', country: 'Indonesia', lat: -6.2088, lon: 106.8456, popK: 34500 },
+  { id: 'bandung', name: 'Bandung', country: 'Indonesia', lat: -6.9175, lon: 107.6191, popK: 2500 },
+  { id: 'surabaya', name: 'Surabaya', country: 'Indonesia', lat: -7.2575, lon: 112.7521, popK: 3000 },
+  { id: 'denpasar', name: 'Denpasar', country: 'Indonesia', lat: -8.6705, lon: 115.2126, popK: 950 },
+  { id: 'padang', name: 'Padang', country: 'Indonesia', lat: -0.9471, lon: 100.4172, popK: 950 },
+  { id: 'bandaaceh', name: 'Banda Aceh', country: 'Indonesia', lat: 5.5483, lon: 95.3238, popK: 250 },
+  { id: 'palu', name: 'Palu', country: 'Indonesia', lat: -0.9003, lon: 119.8779, popK: 370 },
+  { id: 'portmoresby', name: 'Port Moresby', country: 'Papúa N. Guinea', lat: -9.4438, lon: 147.1803, popK: 400 },
+  { id: 'honiara', name: 'Honiara', country: 'Islas Salomón', lat: -9.4456, lon: 159.9729, popK: 85 },
+  { id: 'portvila', name: 'Port Vila', country: 'Vanuatu', lat: -17.7333, lon: 168.3273, popK: 51 },
+  { id: 'nukualofa', name: "Nuku'alofa", country: 'Tonga', lat: -21.1393, lon: -175.2049, popK: 23 },
+  { id: 'auckland', name: 'Auckland', country: 'Nueva Zelanda', lat: -36.8485, lon: 174.7633, popK: 1650 },
+  { id: 'wellington', name: 'Wellington', country: 'Nueva Zelanda', lat: -41.2866, lon: 174.7756, popK: 420 },
+  { id: 'christchurch', name: 'Christchurch', country: 'Nueva Zelanda', lat: -43.532, lon: 172.6362, popK: 390 },
+
+  // --- Sur de Asia ---
+  { id: 'katmandu', name: 'Katmandú', country: 'Nepal', lat: 27.7172, lon: 85.324, popK: 1500 },
+  { id: 'delhi', name: 'Delhi', country: 'India', lat: 28.6139, lon: 77.209, popK: 32900 },
+  { id: 'guwahati', name: 'Guwahati', country: 'India', lat: 26.1445, lon: 91.7362, popK: 1100 },
+  { id: 'daca', name: 'Daca', country: 'Bangladés', lat: 23.8103, lon: 90.4125, popK: 22000 },
+  { id: 'yangon', name: 'Rangún', country: 'Myanmar', lat: 16.8661, lon: 96.1951, popK: 5400 },
+  { id: 'mandalay', name: 'Mandalay', country: 'Myanmar', lat: 21.9588, lon: 96.0891, popK: 1500 },
+  { id: 'islamabad', name: 'Islamabad', country: 'Pakistán', lat: 33.6844, lon: 73.0479, popK: 1200 },
+  { id: 'kabul', name: 'Kabul', country: 'Afganistán', lat: 34.5553, lon: 69.2075, popK: 4600 },
+  { id: 'dusambe', name: 'Dusambé', country: 'Tayikistán', lat: 38.5598, lon: 68.787, popK: 1200 },
+  { id: 'tashkent', name: 'Taskent', country: 'Uzbekistán', lat: 41.2995, lon: 69.2401, popK: 2900 },
+  { id: 'almaty', name: 'Almaty', country: 'Kazajistán', lat: 43.222, lon: 76.8512, popK: 2100 },
+
+  // --- Oriente Medio y Cáucaso ---
+  { id: 'teheran', name: 'Teherán', country: 'Irán', lat: 35.6892, lon: 51.389, popK: 9500 },
+  { id: 'tabriz', name: 'Tabriz', country: 'Irán', lat: 38.08, lon: 46.2919, popK: 1700 },
+  { id: 'shiraz', name: 'Shiraz', country: 'Irán', lat: 29.5918, lon: 52.5837, popK: 1900 },
+  { id: 'baku', name: 'Bakú', country: 'Azerbaiyán', lat: 40.4093, lon: 49.8671, popK: 2300 },
+  { id: 'tiflis', name: 'Tiflis', country: 'Georgia', lat: 41.7151, lon: 44.8271, popK: 1200 },
+  { id: 'erevan', name: 'Ereván', country: 'Armenia', lat: 40.1792, lon: 44.4991, popK: 1100 },
+  { id: 'beirut', name: 'Beirut', country: 'Líbano', lat: 33.8938, lon: 35.5018, popK: 2400 },
+
+  // --- Europa y Mediterráneo ---
+  { id: 'estambul', name: 'Estambul', country: 'Turquía', lat: 41.0082, lon: 28.9784, popK: 15600 },
+  { id: 'izmir', name: 'Esmirna', country: 'Turquía', lat: 38.4237, lon: 27.1428, popK: 3000 },
+  { id: 'gaziantep', name: 'Gaziantep', country: 'Turquía', lat: 37.0662, lon: 37.3833, popK: 2200 },
+  { id: 'atenas', name: 'Atenas', country: 'Grecia', lat: 37.9838, lon: 23.7275, popK: 3200 },
+  { id: 'bucarest', name: 'Bucarest', country: 'Rumanía', lat: 44.4268, lon: 26.1025, popK: 1800 },
+  { id: 'roma', name: 'Roma', country: 'Italia', lat: 41.9028, lon: 12.4964, popK: 4300 },
+  { id: 'napoles', name: 'Nápoles', country: 'Italia', lat: 40.8518, lon: 14.2681, popK: 3100 },
+  { id: 'catania', name: 'Catania', country: 'Italia', lat: 37.5079, lon: 15.083, popK: 800 },
+  { id: 'laquila', name: "L'Aquila", country: 'Italia', lat: 42.3498, lon: 13.3995, popK: 70 },
+  { id: 'lisboa', name: 'Lisboa', country: 'Portugal', lat: 38.7223, lon: -9.1393, popK: 2900 },
+  { id: 'reikiavik', name: 'Reikiavik', country: 'Islandia', lat: 64.1466, lon: -21.9426, popK: 240 },
+
+  // --- África ---
+  { id: 'argel', name: 'Argel', country: 'Argelia', lat: 36.7538, lon: 3.0588, popK: 3400 },
+  { id: 'marrakech', name: 'Marrakech', country: 'Marruecos', lat: 31.6295, lon: -7.9811, popK: 1000 },
+  { id: 'nairobi', name: 'Nairobi', country: 'Kenia', lat: -1.2921, lon: 36.8219, popK: 5100 },
+  { id: 'addis', name: 'Adís Abeba', country: 'Etiopía', lat: 9.032, lon: 38.7469, popK: 5200 },
+]
+
+export function cityById(id: string): City | undefined {
+  return CITIES.find((c) => c.id === id)
+}
