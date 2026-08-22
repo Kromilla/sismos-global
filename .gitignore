@@ -1,0 +1,18 @@
+# dependencias y compilados
+node_modules
+dist
+
+# generados: el grafo se reconstruye con `graphify . --update`
+graphify-out/
+
+# el informe imprimible se regenera con docs/build-pdf.mjs
+docs/informe.html
+
+# sistema
+.DS_Store
+Thumbs.db
+*.local
+*.log
+
+# configuración local del agente
+.claude/
