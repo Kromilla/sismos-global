@@ -91,7 +91,31 @@ export function fmtYears(y: number): string {
   return months <= 1 ? '1 mes' : `${months} meses`
 }
 
-/** Radio del marcador en el mapa, escalado por magnitud. */
-export function magRadius(mag: number): number {
-  return Math.max(3, 2.2 ** Math.max(mag, 1) * 0.55)
+/**
+ * Radio del marcador en píxeles.
+ *
+ * La escala es lineal y acotada a propósito. Una escala exponencial es fiel a
+ * la energía liberada, pero a zoom de planeta un M8 pedía 450 px de radio y
+ * tapaba un continente entero. Aquí el tamaño solo ordena visualmente, y el
+ * color hace el trabajo de comunicar la magnitud.
+ */
+export function magRadius(mag: number, zoom = 4): number {
+  const base = clamp(2.4 + (mag - 2) * 1.5, 2.4, 14)
+  const porZoom = clamp(0.55 + zoom * 0.1, 0.6, 1.9)
+  return base * porZoom
+}
+
+function clamp(x: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, x))
+}
+
+/** Clase de magnitud entera a la que pertenece un sismo: 3, 4, 5… y 8 para todo lo mayor. */
+export function magClass(mag: number): number {
+  return Math.min(8, Math.max(3, Math.floor(mag)))
+}
+
+export const MAG_CLASSES = [3, 4, 5, 6, 7, 8]
+
+export function magClassLabel(clase: number): string {
+  return clase === 8 ? 'M8+' : `M${clase}`
 }
