@@ -62,23 +62,49 @@ body {
   color: #64748b !important;
 }
 
-/* Pulso del evento más reciente */
-@keyframes quake-pulse {
+/* Eco de los sismos recientes: anillos que se expanden desde el epicentro,
+   como la propagación de las ondas. Se dibujan en el DOM y no en el canvas
+   del mapa, que es lo que permite animarlos con CSS. */
+@keyframes quake-echo {
   0% {
-    transform: scale(0.6);
-    opacity: 0.9;
+    transform: scale(0.25);
+    opacity: 0.85;
   }
-  70% {
-    transform: scale(2.6);
+  80% {
     opacity: 0;
   }
   100% {
+    transform: scale(3.4);
     opacity: 0;
   }
 }
-.quake-pulse {
-  animation: quake-pulse 2.4s ease-out infinite;
-  transform-origin: center;
+
+.quake-echo {
+  pointer-events: none;
+}
+
+.quake-echo span {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  animation: quake-echo 3.2s cubic-bezier(0.15, 0.6, 0.35, 1) infinite;
+}
+
+/* Tres anillos desfasados dan la sensación de tren de ondas. */
+.quake-echo span:nth-child(2) {
+  animation-delay: 1.05s;
+}
+.quake-echo span:nth-child(3) {
+  animation-delay: 2.1s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .quake-echo span {
+    animation: none;
+    opacity: 0.5;
+    transform: scale(1.4);
+  }
 }
 
 ::-webkit-scrollbar {

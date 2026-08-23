@@ -1,7 +1,8 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   CircleMarker,
   MapContainer,
+  Marker,
   Popup,
   Rectangle,
   TileLayer,
@@ -19,6 +20,12 @@ import { depthColor, fmtAgo, fmtDateTime, magColor, magRadius } from '../ui/form
 
 /** Tope de marcadores dibujados a la vez. */
 const MAX_MARKERS = 8000
+
+/** Horas hacia atrás que se consideran "reciente" para animar el eco. */
+const ECHO_HORAS = 24
+
+/** Cuántos ecos como mucho: cada uno son tres anillos animándose. */
+const MAX_ECOS = 14
 
 export interface Ring {
   lat: number
@@ -41,6 +48,8 @@ interface Props {
   onMapClick?: (lat: number, lon: number) => void
   focus?: { lat: number; lon: number; zoom: number } | null
   className?: string
+  /** Anima con anillos los sismos de las últimas horas. */
+  echo?: boolean
 }
 
 function HeatLayer({ quakes, enabled }: { quakes: Quake[]; enabled: boolean }) {
@@ -62,6 +71,11 @@ function HeatLayer({ quakes, enabled }: { quakes: Quake[]; enabled: boolean }) {
       layer.remove()
     }
   }, [map, quakes, enabled])
+  return null
+}
+
+function ZoomWatcher({ onZoom }: { onZoom: (z: number) => void }) {
+  const map = useMapEvents({ zoomend: () => onZoom(map.getZoom()) })
   return null
 }
 
@@ -95,7 +109,9 @@ export default function MapView({
   onMapClick,
   focus = null,
   className = '',
+  echo = true,
 }: Props) {
+  const [zoom, setZoom] = useState(2)
   // Dibujamos los más fuertes al final para que queden por encima. Si hay
   // demasiados, se recortan por magnitud: 60.000 círculos ahogan el canvas.
   const { ordered, hidden } = useMemo(() => {
@@ -107,6 +123,15 @@ export default function MapView({
     () => quakes.reduce<Quake | null>((mx, q) => (!mx || q.time > mx.time ? q : mx), null),
     [quakes],
   )
+
+  const ecos = useMemo(() => {
+    if (!echo) return []
+    const desde = Date.now() - ECHO_HORAS * 3600_000
+    return quakes
+      .filter((q) => q.time >= desde)
+      .sort((a, b) => b.mag - a.mag)
+      .slice(0, MAX_ECOS)
+  }, [quakes, echo])
 
   return (
     <div className={`relative overflow-hidden rounded-2xl border border-ink-800 ${className}`}>
@@ -124,6 +149,7 @@ export default function MapView({
           attribution='&copy; OpenStreetMap &copy; CARTO · sismos: USGS'
           subdomains="abcd"
         />
+        <ZoomWatcher onZoom={setZoom} />
         <ClickHandler onMapClick={onMapClick} />
         <Focus focus={focus} />
         <HeatLayer quakes={quakes} enabled={showHeat} />
@@ -158,7 +184,7 @@ export default function MapView({
             <CircleMarker
               key={q.id}
               center={[q.lat, q.lon]}
-              radius={magRadius(q.mag)}
+              radius={magRadius(q.mag, zoom)}
               pathOptions={{
                 color: colorBy === 'mag' ? magColor(q.mag) : depthColor(q.depth),
                 weight: q.id === newest?.id ? 2 : 1,
@@ -192,6 +218,26 @@ export default function MapView({
               </Popup>
             </CircleMarker>
           ))}
+
+        {ecos.map((q) => {
+          const lado = Math.max(28, magRadius(q.mag, zoom) * 4)
+          const color = magColor(q.mag)
+          return (
+            <Marker
+              key={`eco-${q.id}`}
+              position={[q.lat, q.lon]}
+              interactive={false}
+              icon={L.divIcon({
+                className: '',
+                iconSize: [lado, lado],
+                iconAnchor: [lado / 2, lado / 2],
+                html:
+                  `<div class="quake-echo" style="width:${lado}px;height:${lado}px;color:${color}">` +
+                  '<span></span><span></span><span></span></div>',
+              })}
+            />
+          )
+        })}
 
         {showCities &&
           CITIES.map((c) => (
