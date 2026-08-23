@@ -6,7 +6,7 @@ import MapView from './components/MapView'
 import EventsTable from './components/EventsTable'
 import { Badge, Note, Spinner, buttonClass, inputClass } from './components/ui'
 import { DAY_MS } from './science/stats'
-import { fmtAgo, fmtNum, magColor } from './ui/format'
+import { MAG_CLASSES, fmtAgo, fmtNum, magClass, magClassLabel, magColor } from './ui/format'
 
 const Analytics = lazy(() => import('./components/Analytics'))
 const Forecast = lazy(() => import('./components/Forecast'))
@@ -54,6 +54,9 @@ export default function App() {
   const [histMinMag, setHistMinMag] = useState(MIN_MAG_MUNDO)
   const [catalogSource, setCatalogSource] = useState<CatalogSource>('USGS')
   const [focus, setFocus] = useState<{ lat: number; lon: number; zoom: number } | null>(null)
+  // Clases de magnitud visibles; vacío significa todas.
+  const [clasesOcultas, setClasesOcultas] = useState<number[]>([])
+  const [decada, setDecada] = useState<number | null>(null)
 
   const region = useMemo(() => ALL_REGIONS.find((r) => r.id === regionId) ?? null, [regionId])
 
@@ -86,14 +89,28 @@ export default function App() {
 
   const filtered = useMemo(
     () =>
-      active.quakes.filter(
-        (q) =>
-          q.mag >= minMag &&
-          q.depth <= maxDepth &&
-          (!region || inBbox(q.lat, q.lon, region.bbox)),
-      ),
-    [active.quakes, minMag, maxDepth, region],
+      active.quakes.filter((q) => {
+        if (q.mag < minMag || q.depth > maxDepth) return false
+        if (region && !inBbox(q.lat, q.lon, region.bbox)) return false
+        if (clasesOcultas.includes(magClass(q.mag))) return false
+        if (decada !== null) {
+          const año = new Date(q.time).getUTCFullYear()
+          if (año < decada || año >= decada + 10) return false
+        }
+        return true
+      }),
+    [active.quakes, minMag, maxDepth, region, clasesOcultas, decada],
   )
+
+  /** Décadas con eventos en el catálogo actual, de la más reciente a la más antigua. */
+  const decadas = useMemo(() => {
+    const cuenta = new Map<number, number>()
+    for (const q of active.quakes) {
+      const d = Math.floor(new Date(q.time).getUTCFullYear() / 10) * 10
+      cuenta.set(d, (cuenta.get(d) ?? 0) + 1)
+    }
+    return [...cuenta.entries()].sort((x, y) => y[0] - x[0])
+  }, [active.quakes])
 
   const strongest = useMemo(
     () => live.quakes.reduce<Quake | null>((mx, q) => (!mx || q.mag > mx.mag ? q : mx), null),
@@ -361,19 +378,65 @@ export default function App() {
               focus={focus}
               className="h-[calc(100vh-320px)] min-h-[420px]"
             />
+            {decadas.length > 1 && (
+              <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                <span className="mr-1 text-[11px] uppercase tracking-wider text-slate-500">
+                  Década
+                </span>
+                <button
+                  onClick={() => setDecada(null)}
+                  className={`rounded-md border px-2 py-1 font-mono text-[11px] transition ${
+                    decada === null
+                      ? 'border-sky-500/60 bg-sky-500/10 text-sky-300'
+                      : 'border-ink-700 text-slate-400 hover:border-ink-600 hover:text-slate-200'
+                  }`}
+                >
+                  Todas
+                </button>
+                {decadas.map(([d, n]) => (
+                  <button
+                    key={d}
+                    onClick={() => setDecada(decada === d ? null : d)}
+                    title={`${n.toLocaleString('es-CO')} eventos`}
+                    className={`rounded-md border px-2 py-1 font-mono text-[11px] transition ${
+                      decada === d
+                        ? 'border-sky-500/60 bg-sky-500/10 text-sky-300'
+                        : 'border-ink-700 text-slate-400 hover:border-ink-600 hover:text-slate-200'
+                    }`}
+                  >
+                    {d}s
+                  </button>
+                ))}
+              </div>
+            )}
+
             <div className="flex flex-wrap items-center gap-4 text-xs text-slate-500">
               <span>{filtered.length.toLocaleString('es-CO')} eventos en pantalla</span>
               <span className="flex flex-wrap items-center gap-2">
                 {colorBy === 'mag'
-                  ? [3, 4, 5, 6, 7, 8].map((m) => (
-                      <span key={m} className="flex items-center gap-1">
-                        <span
-                          className="inline-block h-2.5 w-2.5 rounded-full"
-                          style={{ background: magColor(m) }}
-                        />
-                        M{m}
-                      </span>
-                    ))
+                  ? MAG_CLASSES.map((m) => {
+                      const oculta = clasesOcultas.includes(m)
+                      return (
+                        <button
+                          key={m}
+                          onClick={() =>
+                            setClasesOcultas((prev) =>
+                              prev.includes(m) ? prev.filter((x) => x !== m) : [...prev, m],
+                            )
+                          }
+                          title={oculta ? 'Mostrar esta clase' : 'Ocultar esta clase'}
+                          className={`flex items-center gap-1 rounded px-1 py-0.5 transition hover:bg-ink-800 ${
+                            oculta ? 'opacity-35' : ''
+                          }`}
+                        >
+                          <span
+                            className="inline-block h-2.5 w-2.5 rounded-full"
+                            style={{ background: magColor(m) }}
+                          />
+                          {magClassLabel(m)}
+                        </button>
+                      )
+                    })
                   : (
                       [
                         ['#f87171', '0–30 km'],
@@ -392,6 +455,20 @@ export default function App() {
                       </span>
                     ))}
               </span>
+              {(clasesOcultas.length > 0 || decada !== null) && (
+                <button
+                  onClick={() => {
+                    setClasesOcultas([])
+                    setDecada(null)
+                  }}
+                  className="text-slate-400 underline underline-offset-2 hover:text-slate-200"
+                >
+                  Quitar filtros
+                </button>
+              )}
+              {colorBy === 'mag' && clasesOcultas.length === 0 && (
+                <span className="text-slate-600">Pulsa una clase para ocultarla</span>
+              )}
             </div>
           </div>
         )}
