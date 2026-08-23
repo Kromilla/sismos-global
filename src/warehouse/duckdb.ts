@@ -1,6 +1,4 @@
 import * as duckdb from '@duckdb/duckdb-wasm'
-import mvpWasm from '@duckdb/duckdb-wasm/dist/duckdb-mvp.wasm?url'
-import mvpWorker from '@duckdb/duckdb-wasm/dist/duckdb-browser-mvp.worker.js?url'
 import ehWasm from '@duckdb/duckdb-wasm/dist/duckdb-eh.wasm?url'
 import ehWorker from '@duckdb/duckdb-wasm/dist/duckdb-browser-eh.worker.js?url'
 import type { Quake } from '../types'
@@ -8,10 +6,15 @@ import { ALL_REGIONS, inBbox } from '../data/regions'
 import type { QuakeRole } from '../science/declustering'
 import { energyJoules } from '../science/stats'
 
-const BUNDLES: duckdb.DuckDBBundles = {
-  mvp: { mainModule: mvpWasm, mainWorker: mvpWorker },
-  eh: { mainModule: ehWasm, mainWorker: ehWorker },
-}
+/**
+ * Solo se empaqueta la variante con manejo de excepciones de WebAssembly.
+ * La variante mvp es el respaldo para navegadores que no lo soportan y pesa
+ * 39 MB: descartarla reduce el despliegue a la mitad. Chrome, Firefox, Safari
+ * y Edge lo soportan desde hace años; a quien use algo más viejo se le avisa.
+ */
+// El tipo exige la clave mvp; se omite a propósito y se comprueba abajo que el
+// paquete elegido traiga módulo antes de instanciar.
+const BUNDLES = { eh: { mainModule: ehWasm, mainWorker: ehWorker } } as duckdb.DuckDBBundles
 
 let dbPromise: Promise<duckdb.AsyncDuckDB> | null = null
 
@@ -19,6 +22,12 @@ async function getDb(): Promise<duckdb.AsyncDuckDB> {
   if (!dbPromise) {
     dbPromise = (async () => {
       const bundle = await duckdb.selectBundle(BUNDLES)
+      if (!bundle?.mainModule || !bundle.mainWorker) {
+        throw new Error(
+          'Este navegador no soporta manejo de excepciones en WebAssembly, que es lo que ' +
+            'DuckDB necesita. El resto de la aplicación funciona igual.',
+        )
+      }
       const worker = new Worker(bundle.mainWorker!, { type: 'module' })
       const db = new duckdb.AsyncDuckDB(new duckdb.VoidLogger(), worker)
       await db.instantiate(bundle.mainModule, bundle.pthreadWorker ?? undefined)
