@@ -9,9 +9,11 @@ type SortKey = 'time' | 'mag' | 'depth'
 export default function EventsTable({
   quakes,
   onFocus,
+  onIntensity,
 }: {
   quakes: Quake[]
   onFocus?: (q: Quake) => void
+  onIntensity?: (q: Quake) => void
 }) {
   const [sort, setSort] = useState<SortKey>('time')
   const [limit, setLimit] = useState(100)
@@ -80,9 +82,18 @@ export default function EventsTable({
                   {fmtEnergy(q.mag)}
                 </td>
                 <td className="px-3 py-2 text-right">
-                  <button className={buttonClass} onClick={() => onFocus?.(q)}>
-                    Ver
-                  </button>
+                  <div className="flex justify-end gap-1.5">
+                    <button className={buttonClass} onClick={() => onFocus?.(q)}>
+                      Ver
+                    </button>
+                    <button
+                      className={buttonClass}
+                      onClick={() => onIntensity?.(q)}
+                      title="Intensidad MMI estimada por ciudad"
+                    >
+                      MMI
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
