@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { CatalogQuery, CatalogSource, Quake } from '../types'
 import { loadFdsnCatalog, FDSN_NETWORKS } from '../data/fdsn'
-import { clearCache } from '../data/cache'
+import { clearCache, evictOldCache } from '../data/cache'
 import { loadSgcCatalog, mergeCatalogs } from '../data/sgc'
 
 export interface CatalogState {
@@ -55,6 +55,11 @@ export function useCatalog(
   const [warnings, setWarnings] = useState<string[]>([])
   const [nonce, setNonce] = useState(0)
   const abortRef = useRef<AbortController | null>(null)
+
+  useEffect(() => {
+    // Purga asíncrona de caché vieja (7 días)
+    void evictOldCache(7)
+  }, [])
 
   const key = `${source}|${query.startTime}|${query.endTime}|${query.minMag}|${query.bbox.minLat},${query.bbox.maxLat},${query.bbox.minLon},${query.bbox.maxLon}`
 

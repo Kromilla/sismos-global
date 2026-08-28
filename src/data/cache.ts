@@ -195,3 +195,15 @@ export async function clearCache(): Promise<void> {
     if (k.startsWith('sismoslatam:')) localStorage.removeItem(k)
   }
 }
+
+export async function evictOldCache(maxAgeDays = 7): Promise<void> {
+  const all = await tx<CacheEntry[]>('readonly', (store) => store.getAll() as IDBRequest<CacheEntry[]>)
+  if (!all) return
+  const now = Date.now()
+  const maxAgeMs = maxAgeDays * 24 * 60 * 60 * 1000
+  for (const entry of all) {
+    if (now - (entry.t ?? 0) > maxAgeMs) {
+      await tx('readwrite', (store) => store.delete(entry.key))
+    }
+  }
+}
