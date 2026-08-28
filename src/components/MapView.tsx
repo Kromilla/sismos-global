@@ -145,8 +145,8 @@ export default function MapView({
         className="h-full w-full"
       >
         <TileLayer
-          url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-          attribution='&copy; OpenStreetMap &copy; CARTO · sismos: USGS'
+          url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?key=cb1_2f3i_1_3ede4e71523d05e42cb09489"
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a> · sismos: USGS'
           subdomains="abcd"
         />
         <ZoomWatcher onZoom={setZoom} />
