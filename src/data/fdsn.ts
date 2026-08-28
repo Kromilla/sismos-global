@@ -69,7 +69,7 @@ function iso(ms: number): string {
   return new Date(ms).toISOString().slice(0, 19)
 }
 
-function queryString(net: FdsnNetwork, q: CatalogQuery, extra: Record<string, string> = {}): string {
+function queryString(_net: FdsnNetwork, q: CatalogQuery, extra: Record<string, string> = {}): string {
   const p = new URLSearchParams({
     format: 'geojson',
     starttime: iso(q.startTime),

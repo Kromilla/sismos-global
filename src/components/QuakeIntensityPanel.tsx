@@ -126,7 +126,6 @@ export default function QuakeIntensityPanel({ quake, onClose }: Props) {
               <tbody>
                 {rows.map((r) => {
                   const pct = Math.min(100, ((r.mmi - 1) / 11) * 100)
-                  const level = mmiLevel(r.mmi)
                   return (
                     <tr key={r.city.id} className="border-t border-slate-800/60 hover:bg-slate-800/30 transition">
                       <td className="px-4 py-2">

@@ -30,7 +30,6 @@ import { fmtAgo, fmtDateTime, fmtNum, fmtPct, fmtYears, magColor, probColor } fr
 function ProbCell({ p, expected }: { p: number; expected: number }) {
   const pct = Math.min(100, p * 100)
   const fg = probColor(p)
-  const textColor = p > 0.5 ? '#0f172a' : '#e2e8f0'
   return (
     <td
       className="relative px-3 py-2 text-center font-mono text-xs"
@@ -153,7 +152,7 @@ function EtasRateChart({ forecast }: { forecast: RegionForecast }) {
           />
           <Tooltip
             contentStyle={{ background: '#0f172a', border: '1px solid #1e293b', fontSize: 11 }}
-            formatter={(v: number) => [`${fmtNum(v, 4)} ev/día`, 'Tasa']}
+            formatter={(v: unknown) => [`${fmtNum(Number(v ?? 0), 4)} ev/día`, 'Tasa']}
             labelStyle={{ color: '#94a3b8' }}
           />
           <ReferenceLine
