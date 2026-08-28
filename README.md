@@ -3,8 +3,7 @@
 Catálogo sísmico mundial, almacén analítico y **pronóstico probabilístico**.
 Todo corre en el navegador: sin servidor, sin base de datos remota, sin costo mensual.
 
-49 zonas sismogénicas, 98 ciudades de referencia y dos redes de datos: el USGS para el planeta
-entero y el Servicio Geológico Colombiano, que aporta catálogo desde el año **1610** en Colombia.
+49 zonas sismogénicas, 98 ciudades de referencia y múltiples redes de datos interconectables vía FDSN (USGS, EMSC, GeoNet, GA, INGV) para el planeta entero, más el Servicio Geológico Colombiano, que aporta catálogo desde el año **1610** en Colombia.
 
 ```bash
 npm install
@@ -31,7 +30,7 @@ el que se calculó.
 | Pestaña | Qué hace |
 |---|---|
 | **Mapa** | Sismicidad mundial de los últimos 30 días o del catálogo histórico. Color por magnitud o profundidad, mapa de calor, las 49 zonas dibujadas. |
-| **Eventos** | Catálogo tabulado con orden por magnitud, fecha o profundidad, y energía liberada en TNT. |
+| **Eventos** | Catálogo tabulado con orden por magnitud, fecha o profundidad, energía liberada en TNT, y acceso a un panel de intensidad estimada (MMI) por ciudad para cada sismo. |
 | **Análisis** | Gutenberg–Richter con ajuste, valor b, completitud, actividad anual, perfil de profundidad, hora del día. |
 | **Pronóstico** | ETAS a corto plazo, Poisson de fondo a largo plazo, secuencias de réplicas activas con Omori–Utsu, validación retrospectiva y ranking de las 49 zonas. |
 | **Intensidad** | PSHA por ciudad: curva de amenaza, MMI y PGA de diseño (475 y 2475 años), desagregación magnitud–distancia y escenarios "¿qué pasaría si…?" con anillos de intensidad. |
@@ -74,9 +73,9 @@ Todos en `src/science/`, sin dependencias externas de cálculo:
 
 ## Datos
 
-- **USGS ComCat** vía la API FDSN (`earthquake.usgs.gov/fdsnws/event/1`), dominio público. Las
-  consultas grandes se parten solas en ventanas temporales para esquivar el tope de 20 000 eventos
-  por petición. De cada evento se guarda además la intensidad observada: `mmi` del ShakeMap
+- **Redes FDSN**: Soporte genérico para múltiples agencias mundiales (USGS, EMSC, INGV, GeoNet, Geoscience Australia). Las
+  consultas grandes se parten solas en ventanas temporales para esquivar el tope de eventos
+  por petición (ej. 20 000 en el USGS). La app soporta la carga multired en paralelo y la fusión sin duplicados. De cada evento se extrae además la intensidad observada (cuando existe): `mmi` del ShakeMap
   instrumental y `cdi` de los reportes ciudadanos.
 - **Servicio Geológico Colombiano**, catálogo integrado desde **1610**, servido como capa ArcGIS
   abierta. Se puede usar solo o fundido con el USGS quitando duplicados. Dos rarezas del servicio
