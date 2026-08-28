@@ -9,6 +9,7 @@ import {
   mmiLevel,
   mmiRoman,
   radiusForMmi,
+  wellsCoppersmithLength,
 } from '../science/intensity'
 import { haversineKm } from '../science/stats'
 import { fmtDateTime, magColor } from '../ui/format'
@@ -19,6 +20,7 @@ interface ImpactRow {
   rhypoKm: number
   mmi: number
   label: string
+  nearRupture: boolean
 }
 
 interface Props {
@@ -30,11 +32,13 @@ export default function QuakeIntensityPanel({ quake, onClose }: Props) {
   const ipe = IPE_MODELS[DEFAULT_IPE]
 
   const rows = useMemo<ImpactRow[]>(() => {
+    const srl = wellsCoppersmithLength(quake.mag)
     return CITIES.map((city) => {
       const distKm = haversineKm(quake.lat, quake.lon, city.lat, city.lon)
       const rhypoKm = hypocentralKm(distKm, quake.depth)
       const mmi = ipe.mmi(quake.mag, rhypoKm)
-      return { city, distKm, rhypoKm, mmi, label: mmiLevel(mmi).label }
+      const nearRupture = quake.mag >= 7.0 && distKm < srl / 2
+      return { city, distKm, rhypoKm, mmi, label: mmiLevel(mmi).label, nearRupture }
     })
       .filter((r) => r.mmi >= 2)
       .sort((a, b) => b.mmi - a.mmi)
@@ -143,7 +147,14 @@ export default function QuakeIntensityPanel({ quake, onClose }: Props) {
                           {mmiRoman(r.mmi)}
                         </span>
                       </td>
-                      <td className="px-4 py-2 text-xs text-slate-500">{r.label}</td>
+                      <td className="px-4 py-2 text-xs text-slate-500">
+                        {r.label}
+                        {r.nearRupture && (
+                          <div className="mt-1 text-[10px] font-medium text-amber-500" title="Modelo de falla puntual subestima daños cerca de la ruptura (Wells & Coppersmith)">
+                            ⚠️ Cerca de la ruptura
+                          </div>
+                        )}
+                      </td>
                       {/* Barra visual de intensidad */}
                       <td className="px-4 py-2">
                         <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-800">

@@ -254,3 +254,12 @@ export const IPE_MODELS: Record<IpeId, IpeModel> = {
 }
 
 export const DEFAULT_IPE: IpeId = 'allen2012'
+
+/**
+ * Longitud de ruptura subsuperficial (SRL) en km para fallas corticales,
+ * según Wells & Coppersmith (1994). Válido para todos los mecanismos.
+ */
+export function wellsCoppersmithLength(mag: number): number {
+  if (mag < 5.0) return 0
+  return 10 ** (-2.44 + 0.59 * mag)
+}
