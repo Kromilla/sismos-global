@@ -115,6 +115,17 @@ function encode(quakes: Quake[]): QuakeTuple[] {
   ])
 }
 
+function urlFor(source: string, id: string): string {
+  switch (source) {
+    case 'SGC':    return 'https://bdrsnc.sgc.gov.co/paginas1/catalogo/index.php'
+    case 'EMSC':   return `https://www.seismicportal.eu/eventdetails.html?unid=${id.replace('EMSC:', '')}`
+    case 'GEONET': return `https://www.geonet.org.nz/earthquake/${id.replace('GEONET:', '')}`
+    case 'GA':     return `https://earthquakes.ga.gov.au/event/${id.replace('GA:', '')}`
+    case 'INGV':   return `https://terremoti.ingv.it/event/${id.replace('INGV:', '')}`
+    default:       return `https://earthquake.usgs.gov/earthquakes/eventpage/${id.replace('USGS:', '')}`
+  }
+}
+
 function decode(rows: QuakeTuple[]): Quake[] {
   return rows.map((r) => ({
     id: r[0],
@@ -130,10 +141,7 @@ function decode(rows: QuakeTuple[]): Quake[] {
     cdi: r[10] ?? undefined,
     mmi: r[11] ?? undefined,
     felt: r[12] ?? undefined,
-    url:
-      (r[9] ?? 'USGS') === 'SGC'
-        ? 'https://bdrsnc.sgc.gov.co/paginas1/catalogo/index.php'
-        : `https://earthquake.usgs.gov/earthquakes/eventpage/${r[0]}`,
+    url: urlFor(r[9] ?? 'USGS', r[0]),
   }))
 }
 

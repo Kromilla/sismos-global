@@ -4,6 +4,7 @@ import { ALL_REGIONS, REGIONS, WORLD_BBOX, WORLD_REGIONS, inBbox } from './data/
 import { useCatalog } from './hooks/useCatalog'
 import MapView from './components/MapView'
 import EventsTable from './components/EventsTable'
+import QuakeIntensityPanel from './components/QuakeIntensityPanel'
 import { Badge, Note, Spinner, buttonClass, inputClass } from './components/ui'
 import { DAY_MS } from './science/stats'
 import { MAG_CLASSES, fmtAgo, fmtNum, magClass, magClassLabel, magColor } from './ui/format'
@@ -54,9 +55,9 @@ export default function App() {
   const [histMinMag, setHistMinMag] = useState(MIN_MAG_MUNDO)
   const [catalogSource, setCatalogSource] = useState<CatalogSource>('USGS')
   const [focus, setFocus] = useState<{ lat: number; lon: number; zoom: number } | null>(null)
-  // Clases de magnitud visibles; vacío significa todas.
   const [clasesOcultas, setClasesOcultas] = useState<number[]>([])
   const [decada, setDecada] = useState<number | null>(null)
+  const [intensityQuake, setIntensityQuake] = useState<Quake | null>(null)
 
   const region = useMemo(() => ALL_REGIONS.find((r) => r.id === regionId) ?? null, [regionId])
 
@@ -136,7 +137,7 @@ export default function App() {
             Sismos <span className="text-sky-400">Global</span>
           </h1>
           <p className="mt-0.5 text-xs text-slate-500">
-            Catálogo mundial, estadística y pronóstico probabilístico · USGS y, en Colombia, SGC
+            Catálogo mundial · USGS, EMSC, GeoNet, Geoscience Australia, INGV y SGC
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-4 text-xs">
@@ -322,17 +323,36 @@ export default function App() {
               value={catalogSource}
               onChange={(e) => setCatalogSource(e.target.value as CatalogSource)}
             >
-              <option value="USGS">USGS — toda Latinoamérica</option>
-              <option value="ambos">USGS + SGC — Colombia desde 1610</option>
-              <option value="SGC">Solo SGC — Colombia, 1610–2020</option>
+              <optgroup label="— Global —">
+                <option value="USGS">USGS — global (recomendado)</option>
+              </optgroup>
+              <optgroup label="— Europa y Mediterráneo —">
+                <option value="EMSC">EMSC — SeismicPortal</option>
+                <option value="USGS+EMSC">USGS + EMSC</option>
+                <option value="INGV">INGV — Italia</option>
+                <option value="USGS+INGV">USGS + INGV</option>
+              </optgroup>
+              <optgroup label="— Oceanía y Pacífico —">
+                <option value="GEONET">GeoNet — Nueva Zelanda</option>
+                <option value="USGS+GEONET">USGS + GeoNet</option>
+                <option value="GA">Geoscience Australia</option>
+                <option value="USGS+GA">USGS + GA</option>
+              </optgroup>
+              <optgroup label="— Colombia (SGC) —">
+                <option value="ambos">USGS + SGC — Colombia desde 1610</option>
+                <option value="SGC">Solo SGC — Colombia, 1610–hoy</option>
+              </optgroup>
             </select>
           </label>
           <p className="pb-1.5 text-xs text-slate-500">
             {scoped ? region.name : 'Todo el planeta'} ·{' '}
             {hist.quakes.length.toLocaleString('es-CO')} eventos ·{' '}
             {fmtNum((now - histQuery.startTime) / DAY_MS / 365.25, 0)} años
-            {catalogSource !== 'USGS' &&
-              ` · ${hist.counts.usgs.toLocaleString('es-CO')} USGS + ${hist.counts.sgc.toLocaleString('es-CO')} SGC`}
+            {Object.keys(hist.counts).length > 0 &&
+              ' · ' +
+                Object.entries(hist.counts)
+                  .map(([net, n]) => `${n.toLocaleString('es-CO')} ${net}`)
+                  .join(' + ')}
             {hist.fromCache && ' · desde caché local'}
           </p>
         </div>
@@ -473,7 +493,7 @@ export default function App() {
           </div>
         )}
 
-        {tab === 'eventos' && <EventsTable quakes={filtered} onFocus={focusOn} />}
+        {tab === 'eventos' && <EventsTable quakes={filtered} onFocus={focusOn} onIntensity={setIntensityQuake} />}
 
         <Suspense fallback={<Spinner label="Cargando módulo…" />}>
           {tab === 'analisis' && <Analytics quakes={filtered} />}
@@ -491,6 +511,12 @@ export default function App() {
         individuales. Para decisiones de construcción o emergencia mandan las autoridades nacionales
         y la norma sismorresistente vigente.
       </footer>
+      {intensityQuake && (
+        <QuakeIntensityPanel
+          quake={intensityQuake}
+          onClose={() => setIntensityQuake(null)}
+        />
+      )}
     </div>
   )
 }

@@ -14,7 +14,7 @@ export interface Quake {
   tsunami: boolean
   url: string
   /** Red que reportó el evento. */
-  source: 'USGS' | 'SGC'
+  source: 'USGS' | 'SGC' | 'EMSC' | 'GEONET' | 'GA' | 'INGV'
   /** Intensidad comunitaria máxima reportada (Did You Feel It?), si existe. */
   cdi?: number
   /** Intensidad instrumental máxima del ShakeMap, si existe. */
@@ -34,14 +34,25 @@ export type QuakeTuple = [
   magType: string,
   place: string,
   tsunami: 0 | 1,
-  source: 'USGS' | 'SGC',
+  source: 'USGS' | 'SGC' | 'EMSC' | 'GEONET' | 'GA' | 'INGV',
   cdi: number | null,
   mmi: number | null,
   felt: number | null,
 ]
 
 /** De dónde salen los eventos que alimenta la app. */
-export type CatalogSource = 'USGS' | 'SGC' | 'ambos'
+export type CatalogSource =
+  | 'USGS'
+  | 'SGC'
+  | 'ambos'
+  | 'EMSC'
+  | 'GEONET'
+  | 'GA'
+  | 'INGV'
+  | 'USGS+EMSC'
+  | 'USGS+GEONET'
+  | 'USGS+GA'
+  | 'USGS+INGV'
 
 export interface Bbox {
   minLat: number
