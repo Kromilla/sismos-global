@@ -15,7 +15,7 @@ import {
 import { calibrateEtas, etasForecast, etasRate, type EtasForecastCell, type EtasParams } from './etas'
 import { findSequences, type Sequence } from './omori'
 
-export const SHORT_HORIZONS = [7, 30, 90]
+export const SHORT_HORIZONS = [1, 7, 30, 90]
 export const LONG_HORIZONS_YEARS = [1, 5, 10, 30, 50]
 export const FORECAST_MAGS = [4, 5, 6, 7]
 
