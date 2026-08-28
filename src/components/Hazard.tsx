@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import PshaWorker from '../science/psha.worker?worker'
 import {
   Bar,
   BarChart,
@@ -20,7 +21,7 @@ import { Card, Empty, Note, Stat, inputClass } from './ui'
 import { decluster } from '../science/declustering'
 import { fitGutenbergRichter } from '../science/gutenbergRichter'
 import { estimateCompleteness, observationYears } from '../science/completeness'
-import { historicIntensity, scenarioShaking, sitePsha, yearsOf } from '../science/psha'
+import { historicIntensity, scenarioShaking, yearsOf, type PshaResult } from '../science/psha'
 import {
   DEFAULT_IPE,
   IPE_MODELS,
@@ -79,7 +80,7 @@ export default function Hazard({ quakes }: { quakes: Quake[] }) {
     const startYear = new Date(tMin).getUTCFullYear()
     const endYear = new Date(tMax).getUTCFullYear()
     const periodYears = (mag: number) => observationYears(mag, bands, startYear, endYear)
-    return { gr, cluster, years, mmax, bands, periodYears }
+    return { gr, cluster, years, mmax, bands, periodYears, startYear, endYear }
   }, [quakes])
 
   const validation = useMemo(() => compareIpes(quakes, 'mmi'), [quakes])
@@ -90,17 +91,56 @@ export default function Hazard({ quakes }: { quakes: Quake[] }) {
   // El residual es observado menos predicho, así que corregir el modelo es sumarlo.
   const bias = useMemo(() => (applyBias && score ? score.bias : 0), [applyBias, score])
 
-  const psha = useMemo(() => {
-    if (!model) return null
-    return sitePsha(city, model.cluster.background, {
-      mc: model.gr.mc,
-      b: model.gr.b,
-      mmax: model.mmax,
-      years: model.years,
-      ipe: ipeId,
-      bias,
-      periodYears: model.periodYears,
+  const [psha, setPsha] = useState<PshaResult | null>(null)
+  const [isComputing, setIsComputing] = useState(false)
+  const workerRef = useRef<Worker | null>(null)
+  const reqIdRef = useRef(0)
+
+  useEffect(() => {
+    workerRef.current = new PshaWorker()
+    return () => workerRef.current?.terminate()
+  }, [])
+
+  useEffect(() => {
+    if (!model) {
+      setPsha(null)
+      return
+    }
+    const id = ++reqIdRef.current
+    setIsComputing(true)
+    
+    const worker = workerRef.current
+    if (!worker) return
+
+    const handleMessage = (e: MessageEvent) => {
+      if (e.data.id === id) {
+        if (!e.data.error) setPsha(e.data.result)
+        setIsComputing(false)
+        worker.removeEventListener('message', handleMessage)
+      }
+    }
+    worker.addEventListener('message', handleMessage)
+    
+    worker.postMessage({
+      id,
+      city,
+      background: model.cluster.background,
+      opts: {
+        mc: model.gr.mc,
+        b: model.gr.b,
+        mmax: model.mmax,
+        years: model.years,
+        ipe: ipeId,
+        bias,
+      },
+      bands: model.bands,
+      startYear: model.startYear,
+      endYear: model.endYear,
     })
+    
+    return () => {
+      worker.removeEventListener('message', handleMessage)
+    }
   }, [model, city, ipeId, bias])
 
   const scatterData = useMemo(() => {
@@ -203,8 +243,9 @@ export default function Hazard({ quakes }: { quakes: Quake[] }) {
           />
           Corregir sesgo medido
         </label>
-        <p className="pb-1.5 text-xs text-slate-500">
-          {psha ? `${psha.sources.toLocaleString('es-CO')} fuentes en 400 km` : 'Sin fuentes cercanas'}
+        <p className="pb-1.5 text-xs text-slate-500 flex items-center gap-2">
+          {isComputing && <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-slate-600 border-t-sky-500" />}
+          {isComputing ? 'Calculando fuentes...' : psha ? `${psha.sources.toLocaleString('es-CO')} fuentes en 400 km` : 'Sin fuentes cercanas'}
         </p>
       </div>
 
