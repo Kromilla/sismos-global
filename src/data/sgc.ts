@@ -194,16 +194,16 @@ export async function fetchSgcCatalog(
 }
 
 /**
- * Funde los catálogos del USGS y del SGC. Ante eventos duplicados —el mismo
- * sismo reportado por las dos redes— se conserva el del USGS, que trae
- * topónimo, enlace e intensidad observada.
+ * Funde dos catálogos (primario y secundario). Ante eventos duplicados —el mismo
+ * sismo reportado por las dos redes dentro de la tolerancia de tiempo, distancia y magnitud—
+ * se conserva el del catálogo primario.
  */
-export function mergeCatalogs(usgs: Quake[], sgc: Quake[]): Quake[] {
+export function mergeCatalogs(primary: Quake[], secondary: Quake[]): Quake[] {
   const TIME_TOL_MS = 90_000
   const DIST_TOL_KM = 120
   const MAG_TOL = 1.2
 
-  const byTime = [...usgs].sort((a, b) => a.time - b.time)
+  const byTime = [...primary].sort((a, b) => a.time - b.time)
   const lowerBound = (t: number): number => {
     let lo = 0
     let hi = byTime.length
@@ -216,7 +216,7 @@ export function mergeCatalogs(usgs: Quake[], sgc: Quake[]): Quake[] {
   }
 
   const extra: Quake[] = []
-  for (const s of sgc) {
+  for (const s of secondary) {
     let duplicated = false
     for (let i = lowerBound(s.time - TIME_TOL_MS); i < byTime.length; i++) {
       const u = byTime[i]
@@ -229,7 +229,7 @@ export function mergeCatalogs(usgs: Quake[], sgc: Quake[]): Quake[] {
     if (!duplicated) extra.push(s)
   }
 
-  return [...usgs, ...extra].sort((a, b) => b.time - a.time)
+  return [...primary, ...extra].sort((a, b) => b.time - a.time)
 }
 
 /** Descarga el catálogo del SGC con caché en localStorage. */
