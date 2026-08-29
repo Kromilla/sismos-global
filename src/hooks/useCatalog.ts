@@ -115,29 +115,34 @@ export function useCatalog(
         return
       }
 
-      // Fusionar todos los catálogos FDSN en uno solo, deduplicando por ID.
+      // Redes ordenadas por prioridad implícita (el orden en que aparecen en 'source')
       let merged: Quake[] = []
-      const seen = new Set<string>()
       const newCounts: Record<string, number> = {}
 
       for (let i = 0; i < fdsnResults.length; i++) {
         const netId = fdsnParts[i]
         const result = fdsnResults[i]
-        let added = 0
-        for (const q of result.quakes) {
-          if (!seen.has(q.id)) {
-            seen.add(q.id)
-            merged.push(q)
-            added++
-          }
+        
+        if (merged.length === 0) {
+          merged = result.quakes
+          newCounts[netId] = result.quakes.length
+        } else {
+          const beforeMerge = merged.length
+          merged = mergeCatalogs(merged, result.quakes)
+          newCounts[netId] = merged.length - beforeMerge
         }
-        newCounts[netId] = added
       }
 
-      // Si hay SGC, fundir con la lógica de deduplicación espacio-temporal.
+      // Si hay SGC, fundir con la misma lógica de deduplicación espacio-temporal.
       if (wantsSgc && sgcResult.quakes.length > 0) {
-        merged = mergeCatalogs(merged, sgcResult.quakes)
-        newCounts['SGC'] = sgcResult.quakes.length
+        if (merged.length === 0) {
+          merged = sgcResult.quakes
+          newCounts['SGC'] = sgcResult.quakes.length
+        } else {
+          const beforeMerge = merged.length
+          merged = mergeCatalogs(merged, sgcResult.quakes)
+          newCounts['SGC'] = merged.length - beforeMerge
+        }
       }
 
       merged.sort((a, b) => b.time - a.time)
