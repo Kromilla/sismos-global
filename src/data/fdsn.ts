@@ -46,6 +46,24 @@ export const FDSN_NETWORKS: Record<string, FdsnNetwork> = {
     source: 'INGV',
     eventUrl: (id) => `https://terremoti.ingv.it/event/${id}`,
   },
+  GFZ: {
+    id: 'GFZ',
+    baseUrl: 'https://geofon.gfz-potsdam.de/fdsnws/event/1',
+    source: 'GFZ',
+    eventUrl: (id) => `https://geofon.gfz-potsdam.de/eqinfo/event.php?id=${id}`,
+  },
+  IPGP: {
+    id: 'IPGP',
+    baseUrl: 'http://ws.ipgp.fr/fdsnws/event/1',
+    source: 'IPGP',
+    eventUrl: (id) => `http://ws.ipgp.fr/fdsnws/event/1/query?eventid=${id}&format=text`,
+  },
+  SSN: {
+    id: 'SSN',
+    baseUrl: 'https://web.ssn.unam.mx/fdsnws/event/1',
+    source: 'SSN',
+    eventUrl: (id) => `http://www2.ssn.unam.mx:8080/catalogo/`,
+  },
 }
 
 interface FdsnFeature {
