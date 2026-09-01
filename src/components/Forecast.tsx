@@ -115,13 +115,12 @@ function ActivityGauge({
 
 function EtasRateChart({ forecast }: { forecast: RegionForecast }) {
   const { etas, quakes } = forecast;
-  if (!etas) return null;
-
-  const now = Date.now();
+  const now = useState(() => Date.now())[0];
   const lookbackDays = 60;
   const stepDays = 1;
 
   const data = useMemo(() => {
+    if (!etas) return [];
     const points: { day: string; tasa: number; fondo: number }[] = [];
     for (let d = lookbackDays; d >= 0; d -= stepDays) {
       const t = now - d * DAY_MS;
@@ -137,8 +136,8 @@ function EtasRateChart({ forecast }: { forecast: RegionForecast }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [etas, quakes]);
 
-  const maxRate = Math.max(...data.map((d) => d.tasa));
-  if (!maxRate || data.length < 2) return null;
+  const maxRate = data.length > 0 ? Math.max(...data.map((d) => d.tasa)) : 0;
+  if (!etas || !maxRate || data.length < 2) return null;
 
   return (
     <div className="mt-4">

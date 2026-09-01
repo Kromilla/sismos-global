@@ -117,10 +117,7 @@ export default function Hazard({ quakes }: { quakes: Quake[] }) {
   }, []);
 
   useEffect(() => {
-    if (!model) {
-      setPsha(null);
-      return;
-    }
+    if (!model) return;
     const id = ++reqIdRef.current;
     setIsComputing(true);
 

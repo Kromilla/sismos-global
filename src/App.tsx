@@ -69,7 +69,7 @@ const MIN_MAG_ZONA = 4.5;
 
 export default function App() {
   // Instante fijo del arranque: evita rehacer la consulta en cada render.
-  const now = useMemo(() => Date.now(), []);
+  const [now] = useState(() => Date.now());
 
   const [tab, setTab] = useState<Tab>("mapa");
   const [source, setSource] = useState<"reciente" | "historico">("reciente");

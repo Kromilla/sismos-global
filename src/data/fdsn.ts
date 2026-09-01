@@ -64,7 +64,7 @@ export const FDSN_NETWORKS: Record<string, FdsnNetwork> = {
     id: "SSN",
     baseUrl: "https://web.ssn.unam.mx/fdsnws/event/1",
     source: "SSN",
-    eventUrl: (id) => `http://www2.ssn.unam.mx:8080/catalogo/`,
+    eventUrl: () => `http://www2.ssn.unam.mx:8080/catalogo/`,
   },
 };
 
