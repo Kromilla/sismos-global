@@ -123,7 +123,7 @@ export default function App() {
     [histStartYear, histMinMag, now, region, scoped],
   );
 
-  const live = useCatalog(liveQuery, 10 * 60 * 1000);
+  const live = useCatalog(liveQuery, 10 * 60 * 1000, catalogSource);
   const hist = useCatalog(histQuery, 24 * 60 * 60 * 1000, catalogSource);
 
   const needsHistory = tab === "analisis" || needsWorld;
