@@ -27,15 +27,15 @@ el que se calculó.
 
 ## Qué trae
 
-| Pestaña | Qué hace |
-|---|---|
-| **Mapa** | Sismicidad mundial de los últimos 30 días o del catálogo histórico. Color por magnitud o profundidad, mapa de calor, las 49 zonas dibujadas. |
-| **Eventos** | Catálogo tabulado con orden por magnitud, fecha o profundidad, energía liberada en TNT, y acceso a un panel de intensidad estimada (MMI) por ciudad para cada sismo. |
-| **Análisis** | Gutenberg–Richter con ajuste, valor b, completitud, actividad anual, perfil de profundidad, hora del día. |
-| **Pronóstico** | ETAS a corto plazo, Poisson de fondo a largo plazo, secuencias de réplicas activas con Omori–Utsu, validación retrospectiva y ranking de las 49 zonas. |
+| Pestaña        | Qué hace                                                                                                                                                               |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Mapa**       | Sismicidad mundial de los últimos 30 días o del catálogo histórico. Color por magnitud o profundidad, mapa de calor, las 49 zonas dibujadas.                           |
+| **Eventos**    | Catálogo tabulado con orden por magnitud, fecha o profundidad, energía liberada en TNT, y acceso a un panel de intensidad estimada (MMI) por ciudad para cada sismo.   |
+| **Análisis**   | Gutenberg–Richter con ajuste, valor b, completitud, actividad anual, perfil de profundidad, hora del día.                                                              |
+| **Pronóstico** | ETAS a corto plazo, Poisson de fondo a largo plazo, secuencias de réplicas activas con Omori–Utsu, validación retrospectiva y ranking de las 49 zonas.                 |
 | **Intensidad** | PSHA por ciudad: curva de amenaza, MMI y PGA de diseño (475 y 2475 años), desagregación magnitud–distancia y escenarios "¿qué pasaría si…?" con anillos de intensidad. |
-| **Almacén** | DuckDB-WASM: esquema estrella cargado en el navegador y consola SQL con exportación a CSV. |
-| **Aprender** | Tectónica de la región, ondas P/S, escalas, qué hacer, mitos desmontados. |
+| **Almacén**    | DuckDB-WASM: esquema estrella cargado en el navegador y consola SQL con exportación a CSV.                                                                             |
+| **Aprender**   | Tectónica de la región, ondas P/S, escalas, qué hacer, mitos desmontados.                                                                                              |
 
 ## Modelos implementados
 
@@ -89,7 +89,7 @@ Todos en `src/science/`, sin dependencias externas de cálculo:
 - **Caché:** IndexedDB, 10 minutos para el catálogo reciente y 24 horas para el histórico. Se eligió
   frente a `localStorage` porque este corta en unos 5 MB y un catálogo global ocupa el doble. Si la
   base tarda más de tres segundos en abrir —otra pestaña bloqueándola, por ejemplo— la app sigue sin
-  caché en vez de quedarse colgada. El botón *Actualizar* la vacía.
+  caché en vez de quedarse colgada. El botón _Actualizar_ la vacía.
 - **Aviso de calidad:** el servicio del SGC corta en 1000 registros por consulta y no admite
   paginación. Cuando una ventana de un solo día topa ese límite, la app lo dice en pantalla en vez
   de dar el catálogo por completo.
@@ -109,7 +109,7 @@ vistas: vw_sismos · vw_resumen_zona · vw_tasa_anual
 
 Cada fila del hecho trae ya la energía liberada y el rol del evento (fondo, principal, réplica,
 premonitor) que sale del desagrupamiento. El motor pesa ~35 MB y solo se descarga al abrir la
-pestaña *Almacén*; al recargar la página hay que reconstruir el almacén.
+pestaña _Almacén_; al recargar la página hay que reconstruir el almacén.
 
 ## Estructura
 
@@ -130,14 +130,14 @@ Stack: React 19 + TypeScript + Vite, Tailwind 4, Leaflet, Recharts, DuckDB-WASM.
 
 Medidos en el navegador con el catálogo real, no estimados:
 
-| Operación | Volumen | Tiempo |
-|---|---|---|
-| Mapa en vivo, mundial | 2.300 eventos | ~2 s |
-| Histórico mundial M≥5.0 desde 1990 | 62.472 eventos | ~10 s |
-| Enfoque en una zona, M≥4.5 | 10.760 eventos (Japón NE) | ~6 s |
-| Ranking de las 49 zonas | 62.472 eventos | ~3 s |
-| Ingesta al almacén DuckDB | 62.472 filas · 16 MB | ~12 s |
-| Amenaza de una ciudad | 62.472 eventos | ~2 s |
+| Operación                          | Volumen                   | Tiempo |
+| ---------------------------------- | ------------------------- | ------ |
+| Mapa en vivo, mundial              | 2.300 eventos             | ~2 s   |
+| Histórico mundial M≥5.0 desde 1990 | 62.472 eventos            | ~10 s  |
+| Enfoque en una zona, M≥4.5         | 10.760 eventos (Japón NE) | ~6 s   |
+| Ranking de las 49 zonas            | 62.472 eventos            | ~3 s   |
+| Ingesta al almacén DuckDB          | 62.472 filas · 16 MB      | ~12 s  |
+| Amenaza de una ciudad              | 62.472 eventos            | ~2 s   |
 
 El valor b del catálogo mundial sale **1,05 ± 0,01**, que es el valor canónico de la sismicidad
 global: una comprobación gratis de que la tubería de datos no miente.

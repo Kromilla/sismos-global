@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import PshaWorker from '../science/psha.worker?worker'
+import { useEffect, useMemo, useRef, useState } from "react";
+import PshaWorker from "../science/psha.worker?worker";
 import {
   Bar,
   BarChart,
@@ -14,14 +14,22 @@ import {
   XAxis,
   YAxis,
   ZAxis,
-} from 'recharts'
-import type { Quake } from '../types'
-import { CITIES, cityById } from '../data/cities'
-import { Card, Empty, Note, Stat, inputClass } from './ui'
-import { decluster } from '../science/declustering'
-import { fitGutenbergRichter } from '../science/gutenbergRichter'
-import { estimateCompleteness, observationYears } from '../science/completeness'
-import { historicIntensity, scenarioShaking, yearsOf, type PshaResult } from '../science/psha'
+} from "recharts";
+import type { Quake } from "../types";
+import { CITIES, cityById } from "../data/cities";
+import { Card, Empty, Note, Stat, inputClass } from "./ui";
+import { decluster } from "../science/declustering";
+import { fitGutenbergRichter } from "../science/gutenbergRichter";
+import {
+  estimateCompleteness,
+  observationYears,
+} from "../science/completeness";
+import {
+  historicIntensity,
+  scenarioShaking,
+  yearsOf,
+  type PshaResult,
+} from "../science/psha";
 import {
   DEFAULT_IPE,
   IPE_MODELS,
@@ -31,96 +39,103 @@ import {
   mmiRoman,
   radiusForMmi,
   type IpeId,
-} from '../science/intensity'
-import { compareIpes, withObservations } from '../science/ipeValidation'
-import { fmtNum, fmtYears, magColor } from '../ui/format'
-import MapView, { type Ring } from './MapView'
+} from "../science/intensity";
+import { compareIpes, withObservations } from "../science/ipeValidation";
+import { fmtNum, fmtYears, magColor } from "../ui/format";
+import MapView, { type Ring } from "./MapView";
 
 /** Tope de puntos dibujados en la nube de residuales. */
-const MAX_SCATTER_POINTS = 1500
+const MAX_SCATTER_POINTS = 1500;
 
-const axis = { stroke: '#475569', fontSize: 11 }
-const grid = { stroke: '#1e293b', strokeDasharray: '3 3' }
+const axis = { stroke: "#475569", fontSize: 11 };
+const grid = { stroke: "#1e293b", strokeDasharray: "3 3" };
 const tooltipStyle = {
-  background: '#101a2c',
-  border: '1px solid #1f3050',
+  background: "#101a2c",
+  border: "1px solid #1f3050",
   borderRadius: 12,
   fontSize: 12,
-  color: '#e2e8f0',
-}
+  color: "#e2e8f0",
+};
 
 export default function Hazard({ quakes }: { quakes: Quake[] }) {
-  const [cityId, setCityId] = useState('santamarta')
-  const [scenarioMag, setScenarioMag] = useState(7)
-  const [scenarioDepth, setScenarioDepth] = useState(20)
-  const [epicenter, setEpicenter] = useState<{ lat: number; lon: number } | null>(null)
-  const [ipeId, setIpeId] = useState<IpeId>(DEFAULT_IPE)
-  const [applyBias, setApplyBias] = useState(false)
+  const [cityId, setCityId] = useState("santamarta");
+  const [scenarioMag, setScenarioMag] = useState(7);
+  const [scenarioDepth, setScenarioDepth] = useState(20);
+  const [epicenter, setEpicenter] = useState<{
+    lat: number;
+    lon: number;
+  } | null>(null);
+  const [ipeId, setIpeId] = useState<IpeId>(DEFAULT_IPE);
+  const [applyBias, setApplyBias] = useState(false);
 
-  const city = cityById(cityId) ?? CITIES[0]
+  const city = cityById(cityId) ?? CITIES[0];
 
   const model = useMemo(() => {
-    if (quakes.length < 100) return null
-    const gr = fitGutenbergRichter(quakes)
-    if (!gr) return null
-    const cluster = decluster(quakes)
-    const years = yearsOf(quakes)
-    let maxObs = 0
-    let tMin = Infinity
-    let tMax = -Infinity
+    if (quakes.length < 100) return null;
+    const gr = fitGutenbergRichter(quakes);
+    if (!gr) return null;
+    const cluster = decluster(quakes);
+    const years = yearsOf(quakes);
+    let maxObs = 0;
+    let tMin = Infinity;
+    let tMax = -Infinity;
     for (const q of quakes) {
-      if (q.mag > maxObs) maxObs = q.mag
-      if (q.time < tMin) tMin = q.time
-      if (q.time > tMax) tMax = q.time
+      if (q.mag > maxObs) maxObs = q.mag;
+      if (q.time < tMin) tMin = q.time;
+      if (q.time > tMax) tMax = q.time;
     }
-    const mmax = Math.max(maxObs + 0.5, 7.5)
+    const mmax = Math.max(maxObs + 0.5, 7.5);
     // Cada magnitud se observó durante un tiempo distinto; el PSHA lo necesita
     // para no repartir un sismo de 1900 entre el mismo lapso que uno de 2020.
-    const bands = estimateCompleteness(quakes)
-    const startYear = new Date(tMin).getUTCFullYear()
-    const endYear = new Date(tMax).getUTCFullYear()
-    const periodYears = (mag: number) => observationYears(mag, bands, startYear, endYear)
-    return { gr, cluster, years, mmax, bands, periodYears, startYear, endYear }
-  }, [quakes])
+    const bands = estimateCompleteness(quakes);
+    const startYear = new Date(tMin).getUTCFullYear();
+    const endYear = new Date(tMax).getUTCFullYear();
+    const periodYears = (mag: number) =>
+      observationYears(mag, bands, startYear, endYear);
+    return { gr, cluster, years, mmax, bands, periodYears, startYear, endYear };
+  }, [quakes]);
 
-  const validation = useMemo(() => compareIpes(quakes, 'mmi'), [quakes])
+  const validation = useMemo(() => compareIpes(quakes, "mmi"), [quakes]);
   const score = useMemo(
     () => validation.find((v) => v.ipe === ipeId) ?? null,
     [validation, ipeId],
-  )
+  );
   // El residual es observado menos predicho, así que corregir el modelo es sumarlo.
-  const bias = useMemo(() => (applyBias && score ? score.bias : 0), [applyBias, score])
+  const bias = useMemo(
+    () => (applyBias && score ? score.bias : 0),
+    [applyBias, score],
+  );
 
-  const [psha, setPsha] = useState<PshaResult | null>(null)
-  const [isComputing, setIsComputing] = useState(false)
-  const workerRef = useRef<Worker | null>(null)
-  const reqIdRef = useRef(0)
+  const [psha, setPsha] = useState<PshaResult | null>(null);
+  const [isComputing, setIsComputing] = useState(false);
+  const workerRef = useRef<Worker | null>(null);
+  const reqIdRef = useRef(0);
 
   useEffect(() => {
-    workerRef.current = new PshaWorker()
-    return () => workerRef.current?.terminate()
-  }, [])
+    workerRef.current = new PshaWorker();
+    return () => workerRef.current?.terminate();
+  }, []);
 
   useEffect(() => {
     if (!model) {
-      setPsha(null)
-      return
+      setPsha(null);
+      return;
     }
-    const id = ++reqIdRef.current
-    setIsComputing(true)
-    
-    const worker = workerRef.current
-    if (!worker) return
+    const id = ++reqIdRef.current;
+    setIsComputing(true);
+
+    const worker = workerRef.current;
+    if (!worker) return;
 
     const handleMessage = (e: MessageEvent) => {
       if (e.data.id === id) {
-        if (!e.data.error) setPsha(e.data.result)
-        setIsComputing(false)
-        worker.removeEventListener('message', handleMessage)
+        if (!e.data.error) setPsha(e.data.result);
+        setIsComputing(false);
+        worker.removeEventListener("message", handleMessage);
       }
-    }
-    worker.addEventListener('message', handleMessage)
-    
+    };
+    worker.addEventListener("message", handleMessage);
+
     worker.postMessage({
       id,
       city,
@@ -136,49 +151,72 @@ export default function Hazard({ quakes }: { quakes: Quake[] }) {
       bands: model.bands,
       startYear: model.startYear,
       endYear: model.endYear,
-    })
-    
+    });
+
     return () => {
-      worker.removeEventListener('message', handleMessage)
-    }
-  }, [model, city, ipeId, bias])
+      worker.removeEventListener("message", handleMessage);
+    };
+  }, [model, city, ipeId, bias]);
 
   const scatterData = useMemo(() => {
-    const rs = score?.residuals ?? []
-    const step = Math.max(1, Math.ceil(rs.length / MAX_SCATTER_POINTS))
-    const out = []
+    const rs = score?.residuals ?? [];
+    const step = Math.max(1, Math.ceil(rs.length / MAX_SCATTER_POINTS));
+    const out = [];
     for (let i = 0; i < rs.length; i += step) {
-      out.push({ predicho: rs[i].predicted + bias, observado: rs[i].observed, z: 1 })
+      out.push({
+        predicho: rs[i].predicted + bias,
+        observado: rs[i].observed,
+        z: 1,
+      });
     }
-    return out
-  }, [score, bias])
+    return out;
+  }, [score, bias]);
 
   const historic = useMemo(
     () => historicIntensity(city, quakes, 8, ipeId, bias),
     [city, quakes, ipeId, bias],
-  )
+  );
 
   const scenario = useMemo(() => {
-    const center = epicenter ?? (historic[0] ? { lat: historic[0].quake.lat, lon: historic[0].quake.lon } : city)
+    const center =
+      epicenter ??
+      (historic[0]
+        ? { lat: historic[0].quake.lat, lon: historic[0].quake.lon }
+        : city);
     const impacts = scenarioShaking(
-      { lat: center.lat, lon: center.lon, depth: scenarioDepth, mag: scenarioMag },
+      {
+        lat: center.lat,
+        lon: center.lon,
+        depth: scenarioDepth,
+        mag: scenarioMag,
+      },
       CITIES,
       ipeId,
       bias,
-    )
+    );
     const rings: Ring[] = [8, 7, 6, 5, 4]
       .map((target) => ({
         lat: center.lat,
         lon: center.lon,
-        radiusKm: radiusForMmi(scenarioMag, target, scenarioDepth, IPE_MODELS[ipeId].mmi),
+        radiusKm: radiusForMmi(
+          scenarioMag,
+          target,
+          scenarioDepth,
+          IPE_MODELS[ipeId].mmi,
+        ),
         color: mmiColor(target),
         label: `MMI ${mmiRoman(target)} — ${mmiLevel(target).label}`,
       }))
-      .filter((r) => r.radiusKm > 2)
-    return { center, impacts, rings }
-  }, [epicenter, historic, city, scenarioDepth, scenarioMag, ipeId, bias])
+      .filter((r) => r.radiusKm > 2);
+    return { center, impacts, rings };
+  }, [epicenter, historic, city, scenarioDepth, scenarioMag, ipeId, bias]);
 
-  if (!model) return <Empty>Se necesita el catálogo histórico cargado para calcular amenaza.</Empty>
+  if (!model)
+    return (
+      <Empty>
+        Se necesita el catálogo histórico cargado para calcular amenaza.
+      </Empty>
+    );
 
   const curveChart =
     psha?.curve
@@ -187,29 +225,39 @@ export default function Hazard({ quakes }: { quakes: Quake[] }) {
         mmi: p.mmi,
         retorno: p.returnPeriod,
         prob50: p.p50y * 100,
-      })) ?? []
+      })) ?? [];
 
   const deaggChart =
     psha?.deagg.slice(0, 12).map((d) => ({
       etiqueta: `M${d.magBin.toFixed(1)} / ${d.distBin}-${d.distBin + 50}km`,
       aporte: d.contribution * 100,
-    })) ?? []
+    })) ?? [];
 
   return (
     <div className="space-y-4">
       <Note tone="warn">
-        Esto estima <strong>intensidad</strong> (lo que se siente y daña, escala Mercalli), no solo
-        magnitud. El cálculo es un PSHA simplificado: fuentes puntuales del catálogo desagrupado,
-        Gutenberg–Richter truncada y la ecuación de intensidad de{' '}
-        <strong>{IPE_MODELS[ipeId].name}</strong> — {IPE_MODELS[ipeId].scope} No incorpora efecto de
-        sitio ni fallas modeladas, así que <strong>no sustituye a la NSR-10 ni a ninguna norma de
-        construcción</strong>.
+        Esto estima <strong>intensidad</strong> (lo que se siente y daña, escala
+        Mercalli), no solo magnitud. El cálculo es un PSHA simplificado: fuentes
+        puntuales del catálogo desagrupado, Gutenberg–Richter truncada y la
+        ecuación de intensidad de <strong>{IPE_MODELS[ipeId].name}</strong> —{" "}
+        {IPE_MODELS[ipeId].scope} No incorpora efecto de sitio ni fallas
+        modeladas, así que{" "}
+        <strong>
+          no sustituye a la NSR-10 ni a ninguna norma de construcción
+        </strong>
+        .
       </Note>
 
       <div className="flex flex-wrap items-end gap-3">
         <label className="flex flex-col gap-1">
-          <span className="text-[11px] uppercase tracking-wider text-slate-500">Ciudad</span>
-          <select className={inputClass} value={cityId} onChange={(e) => setCityId(e.target.value)}>
+          <span className="text-[11px] uppercase tracking-wider text-slate-500">
+            Ciudad
+          </span>
+          <select
+            className={inputClass}
+            value={cityId}
+            onChange={(e) => setCityId(e.target.value)}
+          >
             {CITIES.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name} — {c.country}
@@ -244,8 +292,14 @@ export default function Hazard({ quakes }: { quakes: Quake[] }) {
           Corregir sesgo medido
         </label>
         <p className="pb-1.5 text-xs text-slate-500 flex items-center gap-2">
-          {isComputing && <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-slate-600 border-t-sky-500" />}
-          {isComputing ? 'Calculando fuentes...' : psha ? `${psha.sources.toLocaleString('es-CO')} fuentes en 400 km` : 'Sin fuentes cercanas'}
+          {isComputing && (
+            <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-slate-600 border-t-sky-500" />
+          )}
+          {isComputing
+            ? "Calculando fuentes..."
+            : psha
+              ? `${psha.sources.toLocaleString("es-CO")} fuentes en 400 km`
+              : "Sin fuentes cercanas"}
         </p>
       </div>
 
@@ -272,7 +326,9 @@ export default function Hazard({ quakes }: { quakes: Quake[] }) {
             />
             <Stat
               label="Máxima histórica estimada"
-              value={psha.historicMax ? `MMI ${mmiRoman(psha.historicMax.mmi)}` : '—'}
+              value={
+                psha.historicMax ? `MMI ${mmiRoman(psha.historicMax.mmi)}` : "—"
+              }
               hint={
                 psha.historicMax
                   ? `M${psha.historicMax.quake.mag.toFixed(1)} en ${new Date(
@@ -291,14 +347,32 @@ export default function Hazard({ quakes }: { quakes: Quake[] }) {
             >
               <div className="h-64">
                 <ResponsiveContainer>
-                  <LineChart data={curveChart} margin={{ top: 8, right: 12, bottom: 4, left: 0 }}>
+                  <LineChart
+                    data={curveChart}
+                    margin={{ top: 8, right: 12, bottom: 4, left: 0 }}
+                  >
                     <CartesianGrid {...grid} />
-                    <XAxis dataKey="mmi" interval={3} {...axis} tickFormatter={(v: number) => mmiRoman(v)} />
-                    <YAxis scale="log" domain={['auto', 'auto']} allowDataOverflow {...axis} />
+                    <XAxis
+                      dataKey="mmi"
+                      interval={3}
+                      {...axis}
+                      tickFormatter={(v: number) => mmiRoman(v)}
+                    />
+                    <YAxis
+                      scale="log"
+                      domain={["auto", "auto"]}
+                      allowDataOverflow
+                      {...axis}
+                    />
                     <RTooltip
                       contentStyle={tooltipStyle}
-                      formatter={(v: unknown) => [fmtYears(Number(v)), 'Periodo de retorno']}
-                      labelFormatter={(v: unknown) => `MMI ${mmiRoman(Number(v))}`}
+                      formatter={(v: unknown) => [
+                        fmtYears(Number(v)),
+                        "Periodo de retorno",
+                      ]}
+                      labelFormatter={(v: unknown) =>
+                        `MMI ${mmiRoman(Number(v))}`
+                      }
                     />
                     <Line
                       type="monotone"
@@ -311,8 +385,9 @@ export default function Hazard({ quakes }: { quakes: Quake[] }) {
                 </ResponsiveContainer>
               </div>
               <Note>
-                Se lee así: cada intensidad tiene su periodo de retorno. Las normas de construcción
-                se anclan en 475 años (10% en 50), que es la vida útil típica de un edificio.
+                Se lee así: cada intensidad tiene su periodo de retorno. Las
+                normas de construcción se anclan en 475 años (10% en 50), que es
+                la vida útil típica de un edificio.
               </Note>
             </Card>
 
@@ -329,23 +404,35 @@ export default function Hazard({ quakes }: { quakes: Quake[] }) {
                   >
                     <CartesianGrid {...grid} />
                     <XAxis type="number" {...axis} unit="%" />
-                    <YAxis type="category" dataKey="etiqueta" width={130} {...axis} />
+                    <YAxis
+                      type="category"
+                      dataKey="etiqueta"
+                      width={130}
+                      {...axis}
+                    />
                     <RTooltip
                       contentStyle={tooltipStyle}
-                      formatter={(v: unknown) => [`${Number(v).toFixed(1)}%`, 'Aporte']}
+                      formatter={(v: unknown) => [
+                        `${Number(v).toFixed(1)}%`,
+                        "Aporte",
+                      ]}
                     />
                     <Bar dataKey="aporte" fill="#f97316" />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
               <Note>
-                Dice de dónde viene el peligro real: si dominan sismos cercanos moderados o lejanos
-                grandes. Eso cambia qué tipo de estructura sufre.
+                Dice de dónde viene el peligro real: si dominan sismos cercanos
+                moderados o lejanos grandes. Eso cambia qué tipo de estructura
+                sufre.
               </Note>
             </Card>
           </div>
 
-          <Card title={`Sismos que más se sintieron en ${city.name}`} subtitle="Intensidad estimada con la IPE, no medida">
+          <Card
+            title={`Sismos que más se sintieron en ${city.name}`}
+            subtitle="Intensidad estimada con la IPE, no medida"
+          >
             <div className="grid gap-2 sm:grid-cols-2">
               {historic.map((h) => (
                 <div
@@ -363,8 +450,8 @@ export default function Hazard({ quakes }: { quakes: Quake[] }) {
                       M{h.quake.mag.toFixed(1)} · {h.quake.place}
                     </span>
                     <span className="block text-[11px] text-slate-500">
-                      {new Date(h.quake.time).getUTCFullYear()} · a {h.distKm.toFixed(0)} km ·{' '}
-                      {mmiLevel(h.mmi).label}
+                      {new Date(h.quake.time).getUTCFullYear()} · a{" "}
+                      {h.distKm.toFixed(0)} km · {mmiLevel(h.mmi).label}
                     </span>
                   </span>
                 </div>
@@ -378,7 +465,10 @@ export default function Hazard({ quakes }: { quakes: Quake[] }) {
           </Card>
         </>
       ) : (
-        <Empty>No hay suficientes fuentes cercanas a {city.name} para un cálculo estable.</Empty>
+        <Empty>
+          No hay suficientes fuentes cercanas a {city.name} para un cálculo
+          estable.
+        </Empty>
       )}
 
       <Card
@@ -396,13 +486,20 @@ export default function Hazard({ quakes }: { quakes: Quake[] }) {
               label: `M${scenarioMag.toFixed(1)} · ${scenarioDepth} km`,
             }}
             onMapClick={(lat, lon) => setEpicenter({ lat, lon })}
-            focus={{ lat: scenario.center.lat, lon: scenario.center.lon, zoom: 6 }}
+            focus={{
+              lat: scenario.center.lat,
+              lon: scenario.center.lon,
+              zoom: 6,
+            }}
             className="h-[380px]"
           />
           <div className="space-y-3">
             <label className="block">
               <span className="text-[11px] uppercase tracking-wider text-slate-500">
-                Magnitud: <b className="font-mono text-slate-200">{scenarioMag.toFixed(1)}</b>
+                Magnitud:{" "}
+                <b className="font-mono text-slate-200">
+                  {scenarioMag.toFixed(1)}
+                </b>
               </span>
               <input
                 type="range"
@@ -416,7 +513,8 @@ export default function Hazard({ quakes }: { quakes: Quake[] }) {
             </label>
             <label className="block">
               <span className="text-[11px] uppercase tracking-wider text-slate-500">
-                Profundidad: <b className="font-mono text-slate-200">{scenarioDepth} km</b>
+                Profundidad:{" "}
+                <b className="font-mono text-slate-200">{scenarioDepth} km</b>
               </span>
               <input
                 type="range"
@@ -440,7 +538,9 @@ export default function Hazard({ quakes }: { quakes: Quake[] }) {
                 <tbody>
                   {scenario.impacts.slice(0, 14).map((im) => (
                     <tr key={im.city.id} className="border-t border-ink-800/70">
-                      <td className="px-2 py-1.5 text-slate-300">{im.city.name}</td>
+                      <td className="px-2 py-1.5 text-slate-300">
+                        {im.city.name}
+                      </td>
                       <td className="px-2 py-1.5 text-right font-mono text-slate-500">
                         {im.distKm.toFixed(0)} km
                       </td>
@@ -458,14 +558,16 @@ export default function Hazard({ quakes }: { quakes: Quake[] }) {
               </table>
             </div>
             <p className="text-[11px] text-slate-500">
-              Población expuesta a MMI ≥ VI:{' '}
+              Población expuesta a MMI ≥ VI:{" "}
               <b className="text-slate-300">
                 {fmtNum(
-                  scenario.impacts.filter((i) => i.mmi >= 6).reduce((s, i) => s + i.popK, 0) / 1000,
+                  scenario.impacts
+                    .filter((i) => i.mmi >= 6)
+                    .reduce((s, i) => s + i.popK, 0) / 1000,
                   1,
-                )}{' '}
+                )}{" "}
                 millones
-              </b>{' '}
+              </b>{" "}
               (solo ciudades de la lista).
             </p>
           </div>
@@ -495,20 +597,28 @@ export default function Hazard({ quakes }: { quakes: Quake[] }) {
                     <tr
                       key={v.ipe}
                       className={`cursor-pointer border-t border-ink-800/70 transition hover:bg-ink-900/60 ${
-                        v.ipe === ipeId ? 'bg-sky-500/5' : ''
+                        v.ipe === ipeId ? "bg-sky-500/5" : ""
                       }`}
                       onClick={() => setIpeId(v.ipe)}
                     >
                       <td className="px-3 py-2 text-slate-200">
                         {v.name}
-                        {v.ipe === ipeId && <span className="ml-2 text-[11px] text-sky-400">activo</span>}
+                        {v.ipe === ipeId && (
+                          <span className="ml-2 text-[11px] text-sky-400">
+                            activo
+                          </span>
+                        )}
                       </td>
-                      <td className="px-3 py-2 text-right font-mono text-slate-400">{v.n}</td>
+                      <td className="px-3 py-2 text-right font-mono text-slate-400">
+                        {v.n}
+                      </td>
                       <td
                         className="px-3 py-2 text-right font-mono"
-                        style={{ color: Math.abs(v.bias) < 0.5 ? '#4ade80' : '#f97316' }}
+                        style={{
+                          color: Math.abs(v.bias) < 0.5 ? "#4ade80" : "#f97316",
+                        }}
                       >
-                        {v.bias > 0 ? '+' : ''}
+                        {v.bias > 0 ? "+" : ""}
                         {v.bias.toFixed(2)}
                       </td>
                       <td className="px-3 py-2 text-right font-mono text-slate-400">
@@ -528,7 +638,9 @@ export default function Hazard({ quakes }: { quakes: Quake[] }) {
 
             <div className="mt-4 h-64">
               <ResponsiveContainer>
-                <ScatterChart margin={{ top: 8, right: 12, bottom: 4, left: 0 }}>
+                <ScatterChart
+                  margin={{ top: 8, right: 12, bottom: 4, left: 0 }}
+                >
                   <CartesianGrid {...grid} />
                   <XAxis
                     type="number"
@@ -538,7 +650,13 @@ export default function Hazard({ quakes }: { quakes: Quake[] }) {
                     ticks={[2, 4, 6, 8, 10]}
                     allowDataOverflow
                     {...axis}
-                    label={{ value: 'MMI predicha', position: 'insideBottom', offset: -2, fill: '#475569', fontSize: 11 }}
+                    label={{
+                      value: "MMI predicha",
+                      position: "insideBottom",
+                      offset: -2,
+                      fill: "#475569",
+                      fontSize: 11,
+                    }}
                   />
                   <YAxis
                     type="number"
@@ -552,8 +670,11 @@ export default function Hazard({ quakes }: { quakes: Quake[] }) {
                   <ZAxis type="number" dataKey="z" range={[24, 24]} />
                   <RTooltip
                     contentStyle={tooltipStyle}
-                    cursor={{ strokeDasharray: '3 3' }}
-                    formatter={(v: unknown, n: unknown) => [Number(v).toFixed(1), String(n)]}
+                    cursor={{ strokeDasharray: "3 3" }}
+                    formatter={(v: unknown, n: unknown) => [
+                      Number(v).toFixed(1),
+                      String(n),
+                    ]}
                   />
                   <ReferenceLine
                     segment={[
@@ -563,39 +684,56 @@ export default function Hazard({ quakes }: { quakes: Quake[] }) {
                     stroke="#64748b"
                     strokeDasharray="4 4"
                   />
-                  <Scatter data={scatterData} fill="#38bdf8" fillOpacity={0.5} isAnimationActive={false} />
+                  <Scatter
+                    data={scatterData}
+                    fill="#38bdf8"
+                    fillOpacity={0.5}
+                    isAnimationActive={false}
+                  />
                 </ScatterChart>
               </ResponsiveContainer>
             </div>
 
             <Note>
-              Cada punto es un sismo real: en el eje horizontal lo que el modelo predice en el
-              epicentro, en el vertical la intensidad máxima que registró el ShakeMap del USGS. La
-              diagonal es el acierto perfecto. Por encima, el modelo se queda corto; por debajo,
-              exagera.{' '}
+              Cada punto es un sismo real: en el eje horizontal lo que el modelo
+              predice en el epicentro, en el vertical la intensidad máxima que
+              registró el ShakeMap del USGS. La diagonal es el acierto perfecto.
+              Por encima, el modelo se queda corto; por debajo, exagera.{" "}
               {score && (
                 <>
-                  El sesgo actual es de <b>{score.bias > 0 ? '+' : ''}{score.bias.toFixed(2)}</b>{' '}
-                  grados sobre {score.n.toLocaleString('es-CO')} eventos con intensidad medida
+                  El sesgo actual es de{" "}
+                  <b>
+                    {score.bias > 0 ? "+" : ""}
+                    {score.bias.toFixed(2)}
+                  </b>{" "}
+                  grados sobre {score.n.toLocaleString("es-CO")} eventos con
+                  intensidad medida
                   {score.n > MAX_SCATTER_POINTS &&
-                    ` (la nube dibuja ${MAX_SCATTER_POINTS.toLocaleString('es-CO')} de ellos)`}
-                  {' '}({withObservations(quakes, 'cdi').length} tienen además reportes ciudadanos).
+                    ` (la nube dibuja ${MAX_SCATTER_POINTS.toLocaleString("es-CO")} de ellos)`}{" "}
+                  ({withObservations(quakes, "cdi").length} tienen además
+                  reportes ciudadanos).
                 </>
               )}
             </Note>
           </>
         ) : (
           <Empty>
-            El catálogo cargado no trae intensidad observada. Amplía el rango de años o baja la
-            magnitud mínima.
+            El catálogo cargado no trae intensidad observada. Amplía el rango de
+            años o baja la magnitud mínima.
           </Empty>
         )}
       </Card>
 
-      <Card title="Escala de Mercalli Modificada" subtitle="Lo que se siente y lo que se rompe">
+      <Card
+        title="Escala de Mercalli Modificada"
+        subtitle="Lo que se siente y lo que se rompe"
+      >
         <div className="grid gap-2 md:grid-cols-2">
           {MMI_SCALE.slice(2).map((lvl) => (
-            <div key={lvl.roman} className="flex gap-3 rounded-xl border border-ink-800 bg-ink-950/40 p-2.5">
+            <div
+              key={lvl.roman}
+              className="flex gap-3 rounded-xl border border-ink-800 bg-ink-950/40 p-2.5"
+            >
               <span
                 className="h-fit w-10 shrink-0 rounded-md py-1 text-center font-mono text-sm font-bold text-slate-950"
                 style={{ background: lvl.color }}
@@ -603,9 +741,11 @@ export default function Hazard({ quakes }: { quakes: Quake[] }) {
                 {lvl.roman}
               </span>
               <div className="min-w-0">
-                <div className="text-sm font-medium text-slate-200">{lvl.label}</div>
+                <div className="text-sm font-medium text-slate-200">
+                  {lvl.label}
+                </div>
                 <div className="text-[11px] leading-snug text-slate-500">
-                  {lvl.perception !== '—' && <>{lvl.perception} </>}
+                  {lvl.perception !== "—" && <>{lvl.perception} </>}
                   {lvl.damage}
                 </div>
               </div>
@@ -621,20 +761,24 @@ export default function Hazard({ quakes }: { quakes: Quake[] }) {
               Magnitud (Mw)
             </div>
             <p className="mt-1 text-xs leading-relaxed text-slate-400">
-              Mide la energía liberada en la falla. Es <b>un solo número por sismo</b>, no depende de
-              dónde estés. Cada punto de magnitud multiplica la energía por ~32.
+              Mide la energía liberada en la falla. Es{" "}
+              <b>un solo número por sismo</b>, no depende de dónde estés. Cada
+              punto de magnitud multiplica la energía por ~32.
             </p>
           </div>
           <div className="rounded-xl border border-ink-800 bg-ink-950/40 p-3">
-            <div className="font-mono text-sm text-amber-400">Intensidad (MMI)</div>
+            <div className="font-mono text-sm text-amber-400">
+              Intensidad (MMI)
+            </div>
             <p className="mt-1 text-xs leading-relaxed text-slate-400">
-              Mide la sacudida en un lugar concreto. <b>Cambia de barrio a barrio</b> según distancia,
-              profundidad y suelo. Un M6 superficial y cercano hace más daño que un M7 profundo y
-              lejano.
+              Mide la sacudida en un lugar concreto.{" "}
+              <b>Cambia de barrio a barrio</b> según distancia, profundidad y
+              suelo. Un M6 superficial y cercano hace más daño que un M7
+              profundo y lejano.
             </p>
           </div>
         </div>
       </Card>
     </div>
-  )
+  );
 }

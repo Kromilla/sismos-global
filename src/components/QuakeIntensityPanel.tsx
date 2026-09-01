@@ -1,6 +1,6 @@
-import { useMemo } from 'react'
-import type { Quake } from '../types'
-import { CITIES } from '../data/cities'
+import { useMemo } from "react";
+import type { Quake } from "../types";
+import { CITIES } from "../data/cities";
 import {
   DEFAULT_IPE,
   IPE_MODELS,
@@ -10,45 +10,52 @@ import {
   mmiRoman,
   radiusForMmi,
   wellsCoppersmithLength,
-} from '../science/intensity'
-import { haversineKm } from '../science/stats'
-import { fmtDateTime, magColor } from '../ui/format'
+} from "../science/intensity";
+import { haversineKm } from "../science/stats";
+import { fmtDateTime, magColor } from "../ui/format";
 
 interface ImpactRow {
-  city: (typeof CITIES)[number]
-  distKm: number
-  rhypoKm: number
-  mmi: number
-  label: string
-  nearRupture: boolean
+  city: (typeof CITIES)[number];
+  distKm: number;
+  rhypoKm: number;
+  mmi: number;
+  label: string;
+  nearRupture: boolean;
 }
 
 interface Props {
-  quake: Quake
-  onClose: () => void
+  quake: Quake;
+  onClose: () => void;
 }
 
 export default function QuakeIntensityPanel({ quake, onClose }: Props) {
-  const ipe = IPE_MODELS[DEFAULT_IPE]
+  const ipe = IPE_MODELS[DEFAULT_IPE];
 
   const rows = useMemo<ImpactRow[]>(() => {
-    const srl = wellsCoppersmithLength(quake.mag)
+    const srl = wellsCoppersmithLength(quake.mag);
     return CITIES.map((city) => {
-      const distKm = haversineKm(quake.lat, quake.lon, city.lat, city.lon)
-      const rhypoKm = hypocentralKm(distKm, quake.depth)
-      const mmi = ipe.mmi(quake.mag, rhypoKm)
-      const nearRupture = quake.mag >= 7.0 && distKm < srl / 2
-      return { city, distKm, rhypoKm, mmi, label: mmiLevel(mmi).label, nearRupture }
+      const distKm = haversineKm(quake.lat, quake.lon, city.lat, city.lon);
+      const rhypoKm = hypocentralKm(distKm, quake.depth);
+      const mmi = ipe.mmi(quake.mag, rhypoKm);
+      const nearRupture = quake.mag >= 7.0 && distKm < srl / 2;
+      return {
+        city,
+        distKm,
+        rhypoKm,
+        mmi,
+        label: mmiLevel(mmi).label,
+        nearRupture,
+      };
     })
       .filter((r) => r.mmi >= 2)
-      .sort((a, b) => b.mmi - a.mmi)
-  }, [quake, ipe])
+      .sort((a, b) => b.mmi - a.mmi);
+  }, [quake, ipe]);
 
   /** Radios de isosistas para mostrar en el subtítulo. */
-  const iso6km = radiusForMmi(quake.mag, 6, quake.depth, ipe.mmi)
-  const iso5km = radiusForMmi(quake.mag, 5, quake.depth, ipe.mmi)
+  const iso6km = radiusForMmi(quake.mag, 6, quake.depth, ipe.mmi);
+  const iso5km = radiusForMmi(quake.mag, 5, quake.depth, ipe.mmi);
 
-  const maxMmi = rows[0]?.mmi ?? 0
+  const maxMmi = rows[0]?.mmi ?? 0;
 
   return (
     /* Overlay */
@@ -73,14 +80,16 @@ export default function QuakeIntensityPanel({ quake, onClose }: Props) {
             {quake.mag.toFixed(1)}
           </div>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-base font-semibold text-slate-100">{quake.place}</p>
+            <p className="truncate text-base font-semibold text-slate-100">
+              {quake.place}
+            </p>
             <p className="mt-0.5 text-xs text-slate-500">
-              {fmtDateTime(quake.time)} · Prof. {quake.depth.toFixed(0)} km ·{' '}
+              {fmtDateTime(quake.time)} · Prof. {quake.depth.toFixed(0)} km ·{" "}
               {quake.lat.toFixed(2)}°, {quake.lon.toFixed(2)}°
             </p>
             <div className="mt-2 flex flex-wrap gap-3 text-[11px] text-slate-400">
               <span>
-                Intensidad máxima estimada:{' '}
+                Intensidad máxima estimada:{" "}
                 <b
                   className="rounded px-1.5 py-0.5 text-slate-950"
                   style={{ background: mmiColor(maxMmi) }}
@@ -89,10 +98,16 @@ export default function QuakeIntensityPanel({ quake, onClose }: Props) {
                 </b>
               </span>
               {iso6km > 2 && (
-                <span>Radio MMI VI ≈ <b className="text-slate-200">{iso6km.toFixed(0)} km</b></span>
+                <span>
+                  Radio MMI VI ≈{" "}
+                  <b className="text-slate-200">{iso6km.toFixed(0)} km</b>
+                </span>
               )}
               {iso5km > 2 && (
-                <span>Radio MMI V ≈ <b className="text-slate-200">{iso5km.toFixed(0)} km</b></span>
+                <span>
+                  Radio MMI V ≈{" "}
+                  <b className="text-slate-200">{iso5km.toFixed(0)} km</b>
+                </span>
               )}
             </div>
           </div>
@@ -114,7 +129,8 @@ export default function QuakeIntensityPanel({ quake, onClose }: Props) {
         <div className="overflow-y-auto">
           {rows.length === 0 ? (
             <p className="p-5 text-sm text-slate-500">
-              Ninguna ciudad alcanza MMI II. El sismo es muy débil o muy profundo.
+              Ninguna ciudad alcanza MMI II. El sismo es muy débil o muy
+              profundo.
             </p>
           ) : (
             <table className="w-full border-collapse text-sm">
@@ -129,12 +145,17 @@ export default function QuakeIntensityPanel({ quake, onClose }: Props) {
               </thead>
               <tbody>
                 {rows.map((r) => {
-                  const pct = Math.min(100, ((r.mmi - 1) / 11) * 100)
+                  const pct = Math.min(100, ((r.mmi - 1) / 11) * 100);
                   return (
-                    <tr key={r.city.id} className="border-t border-slate-800/60 hover:bg-slate-800/30 transition">
+                    <tr
+                      key={r.city.id}
+                      className="border-t border-slate-800/60 hover:bg-slate-800/30 transition"
+                    >
                       <td className="px-4 py-2">
                         <span className="text-slate-200">{r.city.name}</span>
-                        <span className="ml-1.5 text-[11px] text-slate-500">{r.city.country}</span>
+                        <span className="ml-1.5 text-[11px] text-slate-500">
+                          {r.city.country}
+                        </span>
                       </td>
                       <td className="px-4 py-2 text-right font-mono text-xs text-slate-400">
                         {r.distKm.toFixed(0)} km
@@ -150,7 +171,10 @@ export default function QuakeIntensityPanel({ quake, onClose }: Props) {
                       <td className="px-4 py-2 text-xs text-slate-500">
                         {r.label}
                         {r.nearRupture && (
-                          <div className="mt-1 text-[10px] font-medium text-amber-500" title="Modelo de falla puntual subestima daños cerca de la ruptura (Wells & Coppersmith)">
+                          <div
+                            className="mt-1 text-[10px] font-medium text-amber-500"
+                            title="Modelo de falla puntual subestima daños cerca de la ruptura (Wells & Coppersmith)"
+                          >
                             ⚠️ Cerca de la ruptura
                           </div>
                         )}
@@ -160,12 +184,15 @@ export default function QuakeIntensityPanel({ quake, onClose }: Props) {
                         <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-800">
                           <div
                             className="h-full rounded-full transition-all"
-                            style={{ width: `${pct}%`, background: mmiColor(r.mmi) }}
+                            style={{
+                              width: `${pct}%`,
+                              background: mmiColor(r.mmi),
+                            }}
                           />
                         </div>
                       </td>
                     </tr>
-                  )
+                  );
                 })}
               </tbody>
             </table>
@@ -175,22 +202,31 @@ export default function QuakeIntensityPanel({ quake, onClose }: Props) {
         {/* Observado vs predicho (si viene del USGS) */}
         {(quake.mmi != null || quake.cdi != null) && (
           <div className="border-t border-slate-800 bg-slate-950/40 px-5 py-3 text-xs text-slate-400">
-            <span className="font-semibold text-slate-300">Observado por el USGS: </span>
+            <span className="font-semibold text-slate-300">
+              Observado por el USGS:{" "}
+            </span>
             {quake.mmi != null && (
               <span className="mr-3">
-                ShakeMap{' '}
-                <b className="rounded px-1 text-slate-950" style={{ background: mmiColor(quake.mmi) }}>
+                ShakeMap{" "}
+                <b
+                  className="rounded px-1 text-slate-950"
+                  style={{ background: mmiColor(quake.mmi) }}
+                >
                   MMI {mmiRoman(quake.mmi)}
                 </b>
               </span>
             )}
             {quake.cdi != null && (
               <span>
-                DYFI{' '}
-                <b className="rounded px-1 text-slate-950" style={{ background: mmiColor(quake.cdi) }}>
+                DYFI{" "}
+                <b
+                  className="rounded px-1 text-slate-950"
+                  style={{ background: mmiColor(quake.cdi) }}
+                >
                   CDI {mmiRoman(quake.cdi)}
                 </b>
-                {quake.felt != null && ` · ${quake.felt.toLocaleString('es-CO')} reportes`}
+                {quake.felt != null &&
+                  ` · ${quake.felt.toLocaleString("es-CO")} reportes`}
               </span>
             )}
           </div>
@@ -198,10 +234,11 @@ export default function QuakeIntensityPanel({ quake, onClose }: Props) {
 
         {/* Footer */}
         <div className="border-t border-slate-800 px-5 py-3 text-[10px] text-slate-600">
-          Intensidad estimada en el epicentro. No considera efecto de sitio (suelo blando amplifica). 
-          Solo ciudades de la lista interna ({CITIES.length} en total).
+          Intensidad estimada en el epicentro. No considera efecto de sitio
+          (suelo blando amplifica). Solo ciudades de la lista interna (
+          {CITIES.length} en total).
         </div>
       </div>
     </div>
-  )
+  );
 }

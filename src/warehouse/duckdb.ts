@@ -1,10 +1,10 @@
-import * as duckdb from '@duckdb/duckdb-wasm'
-import ehWasm from '@duckdb/duckdb-wasm/dist/duckdb-eh.wasm?url'
-import ehWorker from '@duckdb/duckdb-wasm/dist/duckdb-browser-eh.worker.js?url'
-import type { Quake } from '../types'
-import { ALL_REGIONS, inBbox } from '../data/regions'
-import type { QuakeRole } from '../science/declustering'
-import { energyJoules } from '../science/stats'
+import * as duckdb from "@duckdb/duckdb-wasm";
+import ehWasm from "@duckdb/duckdb-wasm/dist/duckdb-eh.wasm?url";
+import ehWorker from "@duckdb/duckdb-wasm/dist/duckdb-browser-eh.worker.js?url";
+import type { Quake } from "../types";
+import { ALL_REGIONS, inBbox } from "../data/regions";
+import type { QuakeRole } from "../science/declustering";
+import { energyJoules } from "../science/stats";
 
 /**
  * Solo se empaqueta la variante con manejo de excepciones de WebAssembly.
@@ -14,49 +14,54 @@ import { energyJoules } from '../science/stats'
  */
 // El tipo exige la clave mvp; se omite a propósito y se comprueba abajo que el
 // paquete elegido traiga módulo antes de instanciar.
-const BUNDLES = { eh: { mainModule: ehWasm, mainWorker: ehWorker } } as duckdb.DuckDBBundles
+const BUNDLES = {
+  eh: { mainModule: ehWasm, mainWorker: ehWorker },
+} as duckdb.DuckDBBundles;
 
-let dbPromise: Promise<duckdb.AsyncDuckDB> | null = null
+let dbPromise: Promise<duckdb.AsyncDuckDB> | null = null;
 
 async function getDb(): Promise<duckdb.AsyncDuckDB> {
   if (!dbPromise) {
     dbPromise = (async () => {
-      const bundle = await duckdb.selectBundle(BUNDLES)
+      const bundle = await duckdb.selectBundle(BUNDLES);
       if (!bundle?.mainModule || !bundle.mainWorker) {
         throw new Error(
-          'Este navegador no soporta manejo de excepciones en WebAssembly, que es lo que ' +
-            'DuckDB necesita. El resto de la aplicación funciona igual.',
-        )
+          "Este navegador no soporta manejo de excepciones en WebAssembly, que es lo que " +
+            "DuckDB necesita. El resto de la aplicación funciona igual.",
+        );
       }
-      const worker = new Worker(bundle.mainWorker!, { type: 'module' })
-      const db = new duckdb.AsyncDuckDB(new duckdb.VoidLogger(), worker)
-      await db.instantiate(bundle.mainModule, bundle.pthreadWorker ?? undefined)
-      return db
-    })()
+      const worker = new Worker(bundle.mainWorker!, { type: "module" });
+      const db = new duckdb.AsyncDuckDB(new duckdb.VoidLogger(), worker);
+      await db.instantiate(
+        bundle.mainModule,
+        bundle.pthreadWorker ?? undefined,
+      );
+      return db;
+    })();
   }
-  return dbPromise
+  return dbPromise;
 }
 
-export type Row = Record<string, unknown>
+export type Row = Record<string, unknown>;
 
 /** Convierte el resultado Arrow en objetos JS planos y serializables. */
 function toRows(table: { toArray(): unknown[] }): Row[] {
   return table.toArray().map((r) => {
-    const obj = (r as { toJSON?: () => Row }).toJSON?.() ?? (r as Row)
-    const out: Row = {}
+    const obj = (r as { toJSON?: () => Row }).toJSON?.() ?? (r as Row);
+    const out: Row = {};
     for (const [k, v] of Object.entries(obj)) {
-      out[k] = typeof v === 'bigint' ? Number(v) : v
+      out[k] = typeof v === "bigint" ? Number(v) : v;
     }
-    return out
-  })
+    return out;
+  });
 }
 
 export interface WarehouseStats {
-  facts: number
-  zones: number
-  fromYear: number
-  toYear: number
-  sizeMb: number
+  facts: number;
+  zones: number;
+  fromYear: number;
+  toYear: number;
+  sizeMb: number;
 }
 
 const DDL = `
@@ -94,7 +99,7 @@ INSERT INTO dim_magnitud VALUES
   ('fuerte',   'Fuerte (6-7)',        6, 7),
   ('mayor',    'Mayor (7-8)',         7, 8),
   ('grande',   'Grande (>= 8)',       8, 10);
-`
+`;
 
 const FACT_DDL = `
 CREATE TABLE fact_sismo AS
@@ -166,12 +171,12 @@ FROM fact_sismo f
 JOIN dim_zona z USING (zona_id)
 GROUP BY 1, 2
 ORDER BY zona, anio;
-`
+`;
 
 /** Etiqueta cada sismo con la primera zona que lo contiene. */
 function zoneOf(q: Quake): string | null {
-  for (const r of ALL_REGIONS) if (inBbox(q.lat, q.lon, r.bbox)) return r.id
-  return null
+  for (const r of ALL_REGIONS) if (inBbox(q.lat, q.lon, r.bbox)) return r.id;
+  return null;
 }
 
 /** Crea el esquema estrella y carga el catálogo. Idempotente. */
@@ -179,8 +184,8 @@ export async function buildWarehouse(
   quakes: Quake[],
   roles?: Map<string, QuakeRole>,
 ): Promise<WarehouseStats> {
-  const db = await getDb()
-  const conn = await db.connect()
+  const db = await getDb();
+  const conn = await db.connect();
   try {
     await conn.query(`
       DROP VIEW IF EXISTS vw_tasa_anual;
@@ -192,8 +197,8 @@ export async function buildWarehouse(
       DROP TABLE IF EXISTS dim_zona;
       DROP TABLE IF EXISTS dim_profundidad;
       DROP TABLE IF EXISTS dim_magnitud;
-    `)
-    await conn.query(DDL)
+    `);
+    await conn.query(DDL);
 
     const zonas = ALL_REGIONS.map((r) => ({
       zona_id: r.id,
@@ -204,9 +209,11 @@ export async function buildWarehouse(
       min_lon: r.bbox.minLon,
       max_lon: r.bbox.maxLon,
       contexto: r.blurb,
-    }))
-    await db.registerFileText('zonas.json', JSON.stringify(zonas))
-    await conn.query(`INSERT INTO dim_zona SELECT * FROM read_json_auto('zonas.json')`)
+    }));
+    await db.registerFileText("zonas.json", JSON.stringify(zonas));
+    await conn.query(
+      `INSERT INTO dim_zona SELECT * FROM read_json_auto('zonas.json')`,
+    );
 
     const rows = quakes.map((q) => ({
       evento_id: q.id,
@@ -218,16 +225,16 @@ export async function buildWarehouse(
       tipo_magnitud: q.magType,
       lugar: q.place,
       tsunami: q.tsunami,
-      rol: roles?.get(q.id) ?? 'sin_clasificar',
+      rol: roles?.get(q.id) ?? "sin_clasificar",
       zona_id: zoneOf(q),
       energia_j: energyJoules(q.mag),
-    }))
-    const json = JSON.stringify(rows)
-    await db.registerFileText('sismos.json', json)
+    }));
+    const json = JSON.stringify(rows);
+    await db.registerFileText("sismos.json", json);
     await conn.query(
       `CREATE TABLE staging_sismos AS SELECT * FROM read_json_auto('sismos.json', maximum_object_size=200000000)`,
-    )
-    await conn.query(FACT_DDL)
+    );
+    await conn.query(FACT_DDL);
 
     const stats = toRows(
       await conn.query(
@@ -237,7 +244,7 @@ export async function buildWarehouse(
                 max(year(ocurrido_en)) AS to_year
          FROM fact_sismo`,
       ),
-    )[0]
+    )[0];
 
     return {
       facts: Number(stats.facts ?? 0),
@@ -245,67 +252,75 @@ export async function buildWarehouse(
       fromYear: Number(stats.from_year ?? 0),
       toYear: Number(stats.to_year ?? 0),
       sizeMb: json.length / 1e6,
-    }
+    };
   } finally {
-    await conn.close()
+    await conn.close();
   }
 }
 
 export interface QueryResult {
-  rows: Row[]
-  columns: string[]
-  ms: number
-  truncated: boolean
+  rows: Row[];
+  columns: string[];
+  ms: number;
+  truncated: boolean;
 }
 
-const MAX_ROWS = 500
+const MAX_ROWS = 500;
 
 export async function runQuery(sql: string): Promise<QueryResult> {
-  const db = await getDb()
-  const conn = await db.connect()
-  const t0 = performance.now()
+  const db = await getDb();
+  const conn = await db.connect();
+  const t0 = performance.now();
   try {
-    const table = await conn.query(sql)
-    const all = toRows(table as unknown as { toArray(): unknown[] })
-    const columns = table.schema.fields.map((f) => f.name)
+    const table = await conn.query(sql);
+    const all = toRows(table as unknown as { toArray(): unknown[] });
+    const columns = table.schema.fields.map((f) => f.name);
     // Arrow entrega las marcas de tiempo como enteros: las volvemos legibles.
     const timeCols = table.schema.fields
       .filter((f) => /timestamp|date/i.test(String(f.type)))
-      .map((f) => f.name)
+      .map((f) => f.name);
     if (timeCols.length) {
       for (const row of all) {
         for (const c of timeCols) {
-          const v = row[c]
-          if (typeof v !== 'number') continue
-          const ms = Math.abs(v) > 1e14 ? v / 1000 : v
-          row[c] = new Date(ms).toISOString().slice(0, 19).replace('T', ' ')
+          const v = row[c];
+          if (typeof v !== "number") continue;
+          const ms = Math.abs(v) > 1e14 ? v / 1000 : v;
+          row[c] = new Date(ms).toISOString().slice(0, 19).replace("T", " ");
         }
       }
     }
-    const rows = all.slice(0, MAX_ROWS)
-    return { rows, columns, ms: performance.now() - t0, truncated: all.length > MAX_ROWS }
+    const rows = all.slice(0, MAX_ROWS);
+    return {
+      rows,
+      columns,
+      ms: performance.now() - t0,
+      truncated: all.length > MAX_ROWS,
+    };
   } finally {
-    await conn.close()
+    await conn.close();
   }
 }
 
 /** Serializa el resultado de una consulta como CSV. */
 export async function exportCsv(sql: string): Promise<string> {
-  const { rows, columns } = await runQuery(sql)
+  const { rows, columns } = await runQuery(sql);
   const esc = (v: unknown) => {
-    const s = v == null ? '' : String(v)
-    return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s
-  }
-  return [columns.join(','), ...rows.map((r) => columns.map((c) => esc(r[c])).join(','))].join('\n')
+    const s = v == null ? "" : String(v);
+    return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  };
+  return [
+    columns.join(","),
+    ...rows.map((r) => columns.map((c) => esc(r[c])).join(",")),
+  ].join("\n");
 }
 
 export const SAMPLE_QUERIES: { title: string; sql: string }[] = [
   {
-    title: 'Resumen por zona',
-    sql: 'SELECT * FROM vw_resumen_zona;',
+    title: "Resumen por zona",
+    sql: "SELECT * FROM vw_resumen_zona;",
   },
   {
-    title: 'Sismos por año y zona (M>=5)',
+    title: "Sismos por año y zona (M>=5)",
     sql: `SELECT zona, anio, eventos_m5, energia_pj
 FROM vw_tasa_anual
 WHERE eventos_m5 > 0
@@ -313,14 +328,14 @@ ORDER BY anio DESC, eventos_m5 DESC
 LIMIT 100;`,
   },
   {
-    title: 'Top 20 más fuertes',
+    title: "Top 20 más fuertes",
     sql: `SELECT ocurrido_en, magnitud, profundidad_km, zona, lugar
 FROM vw_sismos
 ORDER BY magnitud DESC
 LIMIT 20;`,
   },
   {
-    title: 'Energía liberada por año',
+    title: "Energía liberada por año",
     sql: `SELECT year(ocurrido_en) AS anio,
        round(sum(energia_j) / 1e15, 2) AS energia_pj,
        count(*) AS eventos
@@ -328,7 +343,7 @@ FROM fact_sismo
 GROUP BY 1 ORDER BY 1;`,
   },
   {
-    title: 'Perfil de profundidad por país',
+    title: "Perfil de profundidad por país",
     sql: `SELECT pais, profundidad, count(*) AS eventos
 FROM vw_sismos
 WHERE pais IS NOT NULL
@@ -336,16 +351,16 @@ GROUP BY 1, 2
 ORDER BY pais, eventos DESC;`,
   },
   {
-    title: 'Réplicas vs sismicidad de fondo',
+    title: "Réplicas vs sismicidad de fondo",
     sql: `SELECT rol, count(*) AS eventos, round(avg(magnitud), 2) AS mag_media
 FROM fact_sismo GROUP BY 1 ORDER BY eventos DESC;`,
   },
   {
-    title: 'Ritmo mensual del último año',
+    title: "Ritmo mensual del último año",
     sql: `SELECT strftime(ocurrido_en, '%Y-%m') AS mes, count(*) AS eventos,
        max(magnitud) AS mag_max
 FROM fact_sismo
 WHERE ocurrido_en > now() - INTERVAL 1 YEAR
 GROUP BY 1 ORDER BY 1;`,
   },
-]
+];
