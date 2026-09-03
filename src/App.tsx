@@ -1,4 +1,4 @@
-import { Suspense, lazy, useMemo, useState } from "react";
+import { Suspense, lazy, useEffect, useMemo, useState } from "react";
 import type { CatalogQuery, CatalogSource, Quake } from "./types";
 import {
   ALL_REGIONS,
