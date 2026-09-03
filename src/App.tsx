@@ -68,8 +68,13 @@ const MIN_MAG_MUNDO = 5;
 const MIN_MAG_ZONA = 4.5;
 
 export default function App() {
-  // Instante fijo del arranque: evita rehacer la consulta en cada render.
-  const [now] = useState(() => Date.now());
+  // Instante base: se actualiza cada 2 minutos para tener "tiempo real"
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const interval = setInterval(() => setNow(Date.now()), 120_000);
+    return () => clearInterval(interval);
+  }, []);
 
   const [tab, setTab] = useState<Tab>("mapa");
   const [source, setSource] = useState<"reciente" | "historico">("reciente");
