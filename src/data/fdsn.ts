@@ -135,6 +135,7 @@ async function fetchJson(
   url: string,
   signal?: AbortSignal,
   retries = 3,
+  attempt = 0,
 ): Promise<unknown> {
   try {
     const res = await fetch(url, { signal });
@@ -149,8 +150,9 @@ async function fetchJson(
       (err instanceof DOMException && err.name === "AbortError")
     )
       throw err;
-    await new Promise((r) => setTimeout(r, 1000));
-    return fetchJson(url, signal, retries - 1);
+    const delay = Math.min(5000, 1000 * 2 ** attempt + Math.random() * 500);
+    await new Promise((r) => setTimeout(r, delay));
+    return fetchJson(url, signal, retries - 1, attempt + 1);
   }
 }
 
@@ -160,11 +162,13 @@ async function countFdsn(
   signal?: AbortSignal,
 ): Promise<number> {
   try {
-    const data = (await fetchJson(
-      `${net.baseUrl}/count?${queryString(net, q)}`,
-      signal,
-    )) as { count: number };
-    return data.count ?? 0;
+    const p = new URLSearchParams(queryString(net, q));
+    p.delete("format"); // /count suele ser text/plain y falla con format=geojson en varios nodos
+    const res = await fetch(`${net.baseUrl}/count?${p.toString()}`, { signal });
+    if (!res.ok) return FDSN_MAX;
+    const text = await res.text();
+    const match = text.match(/\d+/);
+    return match ? parseInt(match[0], 10) : FDSN_MAX;
   } catch {
     // Algunos servicios no implementan /count — se asume que hay datos.
     return FDSN_MAX;

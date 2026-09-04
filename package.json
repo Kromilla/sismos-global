@@ -33,6 +33,7 @@
     "tailwindcss": "^4.3.3",
     "typescript": "~6.0.2",
     "vite": "^8.2.0",
+    "vite-plugin-pwa": "^1.3.0",
     "vitest": "^4.1.11"
   },
   "description": "Catálogo sísmico mundial, análisis estadístico y pronóstico probabilístico en el navegador"
