@@ -39,7 +39,9 @@ body {
 }
 .leaflet-popup-content-wrapper,
 .leaflet-popup-tip {
-  background: var(--color-ink-850);
+  background: rgba(16, 26, 44, 0.7);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   color: #e2e8f0;
   border: 1px solid var(--color-ink-700);
   box-shadow: 0 18px 40px rgb(0 0 0 / 0.5);

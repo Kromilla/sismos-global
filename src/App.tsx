@@ -1,4 +1,4 @@
-import { Suspense, lazy, useMemo, useState } from "react";
+import { Suspense, lazy, useEffect, useMemo, useState } from "react";
 import type { CatalogQuery, CatalogSource, Quake } from "./types";
 import {
   ALL_REGIONS,
@@ -68,12 +68,17 @@ const MIN_MAG_MUNDO = 5;
 const MIN_MAG_ZONA = 4.5;
 
 export default function App() {
-  // Instante fijo del arranque: evita rehacer la consulta en cada render.
-  const [now] = useState(() => Date.now());
+  // Instante base: se actualiza cada 2 minutos para tener "tiempo real"
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const interval = setInterval(() => setNow(Date.now()), 120_000);
+    return () => clearInterval(interval);
+  }, []);
 
   const [tab, setTab] = useState<Tab>("mapa");
   const [source, setSource] = useState<"reciente" | "historico">("reciente");
-  const [minMag, setMinMag] = useState(2.5);
+  const [minMag, setMinMag] = useState(0);
   const [maxDepth, setMaxDepth] = useState(800);
   const [regionId, setRegionId] = useState<string>("");
   const [colorBy, setColorBy] = useState<"mag" | "depth">("mag");
@@ -98,9 +103,9 @@ export default function App() {
 
   const liveQuery: CatalogQuery = useMemo(
     () => ({
-      startTime: now - 30 * DAY_MS,
+      startTime: now - 7 * DAY_MS,
       endTime: now,
-      minMag: 2.5,
+      minMag: 0,
       bbox: WORLD_BBOX,
     }),
     [now],
@@ -242,7 +247,7 @@ export default function App() {
       </nav>
 
       {(tab === "mapa" || tab === "eventos") && (
-        <div className="flex flex-wrap items-end gap-3 rounded-2xl border border-ink-800 bg-ink-900/50 p-3">
+        <div className="flex flex-wrap items-end gap-3 rounded-2xl border border-ink-800 bg-ink-900/40 backdrop-blur-md p-3">
           <label className="flex flex-col gap-1">
             <span className="text-[11px] uppercase tracking-wider text-slate-500">
               Catálogo
@@ -254,7 +259,7 @@ export default function App() {
                 setSource(e.target.value as "reciente" | "historico")
               }
             >
-              <option value="reciente">Últimos 30 días (M≥2.5)</option>
+              <option value="reciente">Últimos 7 días (M≥0)</option>
               <option value="historico">Histórico desde {histStartYear}</option>
             </select>
           </label>
@@ -265,7 +270,7 @@ export default function App() {
             </span>
             <input
               type="range"
-              min={2}
+              min={0}
               max={7}
               step={0.1}
               value={minMag}
@@ -355,7 +360,7 @@ export default function App() {
       )}
 
       {needsHistory && (
-        <div className="flex flex-wrap items-end gap-3 rounded-2xl border border-ink-800 bg-ink-900/50 p-3">
+        <div className="flex flex-wrap items-end gap-3 rounded-2xl border border-ink-800 bg-ink-900/40 backdrop-blur-md p-3">
           <label className="flex flex-col gap-1">
             <span className="text-[11px] uppercase tracking-wider text-slate-500">
               Catálogo desde
@@ -436,7 +441,7 @@ export default function App() {
       )}
 
       {active.loading && (
-        <div className="rounded-2xl border border-ink-800 bg-ink-900/50 p-4">
+        <div className="rounded-2xl border border-ink-800 bg-ink-900/40 backdrop-blur-md p-4">
           <Spinner
             label={
               active.progress
@@ -468,6 +473,7 @@ export default function App() {
         {tab === "mapa" && (
           <div className="space-y-3">
             <MapView
+              now={now}
               quakes={filtered}
               colorBy={colorBy}
               showHeat={showHeat}
@@ -590,8 +596,8 @@ export default function App() {
 
         <Suspense fallback={<Spinner label="Cargando módulo…" />}>
           {tab === "analisis" && <Analytics quakes={filtered} />}
-          {tab === "pronostico" && <Forecast quakes={hist.quakes} />}
-          {tab === "intensidad" && <Hazard quakes={hist.quakes} />}
+          {tab === "pronostico" && <Forecast quakes={hist.quakes} now={now} />}
+          {tab === "intensidad" && <Hazard quakes={hist.quakes} now={now} />}
           {tab === "almacen" && <Warehouse quakes={hist.quakes} />}
           {tab === "aprender" && <Learn />}
         </Suspense>
