@@ -247,7 +247,7 @@ export default function App() {
       </nav>
 
       {(tab === "mapa" || tab === "eventos") && (
-        <div className="flex flex-wrap items-end gap-3 rounded-2xl border border-ink-800 bg-ink-900/50 p-3">
+        <div className="flex flex-wrap items-end gap-3 rounded-2xl border border-ink-800 bg-ink-900/40 backdrop-blur-md p-3">
           <label className="flex flex-col gap-1">
             <span className="text-[11px] uppercase tracking-wider text-slate-500">
               Catálogo
@@ -360,7 +360,7 @@ export default function App() {
       )}
 
       {needsHistory && (
-        <div className="flex flex-wrap items-end gap-3 rounded-2xl border border-ink-800 bg-ink-900/50 p-3">
+        <div className="flex flex-wrap items-end gap-3 rounded-2xl border border-ink-800 bg-ink-900/40 backdrop-blur-md p-3">
           <label className="flex flex-col gap-1">
             <span className="text-[11px] uppercase tracking-wider text-slate-500">
               Catálogo desde
@@ -441,7 +441,7 @@ export default function App() {
       )}
 
       {active.loading && (
-        <div className="rounded-2xl border border-ink-800 bg-ink-900/50 p-4">
+        <div className="rounded-2xl border border-ink-800 bg-ink-900/40 backdrop-blur-md p-4">
           <Spinner
             label={
               active.progress
@@ -473,6 +473,7 @@ export default function App() {
         {tab === "mapa" && (
           <div className="space-y-3">
             <MapView
+              now={now}
               quakes={filtered}
               colorBy={colorBy}
               showHeat={showHeat}
@@ -595,8 +596,8 @@ export default function App() {
 
         <Suspense fallback={<Spinner label="Cargando módulo…" />}>
           {tab === "analisis" && <Analytics quakes={filtered} />}
-          {tab === "pronostico" && <Forecast quakes={hist.quakes} />}
-          {tab === "intensidad" && <Hazard quakes={hist.quakes} />}
+          {tab === "pronostico" && <Forecast quakes={hist.quakes} now={now} />}
+          {tab === "intensidad" && <Hazard quakes={hist.quakes} now={now} />}
           {tab === "almacen" && <Warehouse quakes={hist.quakes} />}
           {tab === "aprender" && <Learn />}
         </Suspense>

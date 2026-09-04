@@ -81,7 +81,7 @@ interface FdsnFeature {
     cdi?: number | null;
     mmi?: number | null;
     felt?: number | null;
-  };
+  }; 
   geometry: { coordinates: [number, number, number] } | null;
 }
 

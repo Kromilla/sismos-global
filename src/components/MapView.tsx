@@ -43,6 +43,7 @@ export interface Ring {
 
 interface Props {
   quakes: Quake[];
+  now: number;
   colorBy?: "mag" | "depth";
   showHeat?: boolean;
   showRegions?: boolean;
@@ -123,6 +124,7 @@ function Focus({
 
 export default function MapView({
   quakes,
+  now,
   colorBy = "mag",
   showHeat = false,
   showRegions = false,
@@ -158,12 +160,12 @@ export default function MapView({
 
   const ecos = useMemo(() => {
     if (!echo) return [];
-    const desde = Date.now() - ECHO_HORAS * 3600_000;
+    const desde = now - ECHO_HORAS * 3600_000;
     return quakes
       .filter((q) => q.time >= desde)
       .sort((a, b) => b.mag - a.mag)
       .slice(0, MAX_ECOS);
-  }, [quakes, echo]);
+  }, [quakes, echo, now]);
 
   return (
     <div

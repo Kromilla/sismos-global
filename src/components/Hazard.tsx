@@ -57,7 +57,7 @@ const tooltipStyle = {
   color: "#e2e8f0",
 };
 
-export default function Hazard({ quakes }: { quakes: Quake[] }) {
+export default function Hazard({ quakes, now }: { quakes: Quake[]; now: number }) {
   const [cityId, setCityId] = useState("santamarta");
   const [scenarioMag, setScenarioMag] = useState(7);
   const [scenarioDepth, setScenarioDepth] = useState(20);
@@ -108,6 +108,12 @@ export default function Hazard({ quakes }: { quakes: Quake[] }) {
 
   const [psha, setPsha] = useState<PshaResult | null>(null);
   const [isComputing, setIsComputing] = useState(false);
+  const [prevModel, setPrevModel] = useState<typeof model>(null);
+
+  if (model !== prevModel) {
+    setPrevModel(model);
+    setIsComputing(true);
+  }
   const workerRef = useRef<Worker | null>(null);
   const reqIdRef = useRef(0);
 
@@ -119,8 +125,6 @@ export default function Hazard({ quakes }: { quakes: Quake[] }) {
   useEffect(() => {
     if (!model) return;
     const id = ++reqIdRef.current;
-    setIsComputing(true);
-
     const worker = workerRef.current;
     if (!worker) return;
 
@@ -474,6 +478,7 @@ export default function Hazard({ quakes }: { quakes: Quake[] }) {
       >
         <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
           <MapView
+            now={now}
             quakes={[]}
             showCities
             rings={scenario.rings}
