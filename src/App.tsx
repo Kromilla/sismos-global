@@ -1,4 +1,11 @@
-import { Suspense, lazy, useMemo, useState } from "react";
+import {
+  Suspense,
+  lazy,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import type { CatalogQuery, CatalogSource, Quake } from "./types";
 import {
   ALL_REGIONS,
@@ -8,6 +15,7 @@ import {
   inBbox,
 } from "./data/regions";
 import { useCatalog } from "./hooks/useCatalog";
+import { useShareableState } from "./hooks/useShareableState";
 import MapView from "./components/MapView";
 import EventsTable from "./components/EventsTable";
 import QuakeIntensityPanel from "./components/QuakeIntensityPanel";
@@ -21,6 +29,13 @@ import {
   magClassLabel,
   magColor,
 } from "./ui/format";
+import {
+  SHELL,
+  detectLang,
+  localeFor,
+  persistLang,
+  type Lang,
+} from "./i18n/shell";
 
 const Analytics = lazy(() => import("./components/Analytics"));
 const Forecast = lazy(() => import("./components/Forecast"));
@@ -37,23 +52,35 @@ type Tab =
   | "almacen"
   | "aprender";
 
-const TABS: { id: Tab; label: string; hint: string }[] = [
-  { id: "mapa", label: "Mapa", hint: "Sismicidad en tiempo casi real" },
-  { id: "eventos", label: "Eventos", hint: "Catálogo tabulado" },
-  { id: "analisis", label: "Análisis", hint: "Estadística del catálogo" },
-  {
-    id: "pronostico",
-    label: "Pronóstico",
-    hint: "Probabilidades ETAS y Poisson",
-  },
-  {
-    id: "intensidad",
-    label: "Intensidad",
-    hint: "Amenaza y escenarios de daño",
-  },
-  { id: "almacen", label: "Almacén", hint: "Data warehouse SQL" },
-  { id: "aprender", label: "Aprender", hint: "Cómo funciona todo esto" },
-];
+const TAB_IDS = new Set<Tab>([
+  "mapa",
+  "eventos",
+  "analisis",
+  "pronostico",
+  "intensidad",
+  "almacen",
+  "aprender",
+]);
+
+const CATALOG_SOURCES = new Set<CatalogSource>([
+  "USGS",
+  "SGC",
+  "ambos",
+  "EMSC",
+  "GEONET",
+  "GA",
+  "INGV",
+  "GFZ",
+  "IPGP",
+  "SSN",
+  "USGS+EMSC",
+  "USGS+GEONET",
+  "USGS+GA",
+  "USGS+INGV",
+  "USGS+GFZ",
+  "USGS+IPGP",
+  "USGS+SSN",
+]);
 
 // 1610 y 1900 solo aportan datos con el catálogo del SGC activado.
 const HIST_START_YEARS = [1610, 1900, 1950, 1970, 1990, 2000, 2010];
@@ -70,6 +97,9 @@ const MIN_MAG_ZONA = 4.5;
 export default function App() {
   // Instante fijo del arranque: evita rehacer la consulta en cada render.
   const [now] = useState(() => Date.now());
+  const [lang, setLang] = useState<Lang>(() => detectLang());
+  const t = SHELL[lang];
+  const locale = localeFor(lang);
 
   const [tab, setTab] = useState<Tab>("mapa");
   const [source, setSource] = useState<"reciente" | "historico">("reciente");
@@ -90,6 +120,80 @@ export default function App() {
   const [clasesOcultas, setClasesOcultas] = useState<number[]>([]);
   const [decada, setDecada] = useState<number | null>(null);
   const [intensityQuake, setIntensityQuake] = useState<Quake | null>(null);
+  const [shareStatus, setShareStatus] = useState<"idle" | "ok" | "fail">(
+    "idle",
+  );
+
+  useEffect(() => {
+    persistLang(lang);
+    document.title =
+      lang === "en"
+        ? "Quakes Global — catalog, analysis and seismic forecast"
+        : "Sismos Global — catálogo, análisis y pronóstico sísmico mundial";
+  }, [lang]);
+
+  const applyFromUrl = useCallback((params: URLSearchParams) => {
+    const langParam = params.get("lang");
+    if (langParam === "en" || langParam === "es") setLang(langParam);
+
+    const tabParam = params.get("tab");
+    if (tabParam && TAB_IDS.has(tabParam as Tab)) setTab(tabParam as Tab);
+
+    const regionParam = params.get("region") ?? "";
+    if (!regionParam || ALL_REGIONS.some((r) => r.id === regionParam)) {
+      setRegionId(regionParam);
+      setHistMinMag(regionParam ? MIN_MAG_ZONA : MIN_MAG_MUNDO);
+    }
+
+    const src = params.get("source");
+    if (src === "reciente" || src === "historico") setSource(src);
+
+    const cat = params.get("catalog");
+    if (cat && CATALOG_SOURCES.has(cat as CatalogSource)) {
+      setCatalogSource(cat as CatalogSource);
+    }
+
+    const year = Number(params.get("from"));
+    if (HIST_START_YEARS.includes(year)) setHistStartYear(year);
+
+    const mag = Number(params.get("mag"));
+    if (Number.isFinite(mag) && mag >= 2 && mag <= 7) setMinMag(mag);
+
+    const color = params.get("color");
+    if (color === "mag" || color === "depth") setColorBy(color);
+
+    if (params.get("heat") === "1") setShowHeat(true);
+    if (params.get("zones") === "1") setShowRegions(true);
+  }, []);
+
+  const shareState = useMemo(
+    () => ({
+      lang,
+      tab,
+      region: regionId,
+      source,
+      catalog: catalogSource,
+      from: String(histStartYear),
+      mag: minMag === 2.5 ? "" : String(minMag),
+      color: colorBy === "mag" ? "" : colorBy,
+      heat: showHeat ? "1" : "",
+      zones: showRegions ? "1" : "",
+    }),
+    [
+      lang,
+      tab,
+      regionId,
+      source,
+      catalogSource,
+      histStartYear,
+      minMag,
+      colorBy,
+      showHeat,
+      showRegions,
+    ],
+  );
+
+  const { copyShareUrl } = useShareableState(shareState, applyFromUrl);
 
   const region = useMemo(
     () => ALL_REGIONS.find((r) => r.id === regionId) ?? null,
@@ -174,23 +278,28 @@ export default function App() {
     setTab("mapa");
   };
 
+  const onShare = async () => {
+    const ok = await copyShareUrl();
+    setShareStatus(ok ? "ok" : "fail");
+    window.setTimeout(() => setShareStatus("idle"), 2000);
+  };
+
+  const nl = (n: number) => n.toLocaleString(locale);
+
   return (
     <div className="mx-auto flex min-h-full max-w-[1400px] flex-col gap-4 px-4 py-5">
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-xl font-semibold tracking-tight text-slate-100">
-            Sismos <span className="text-sky-400">Global</span>
+            {t.title} <span className="text-sky-400">Global</span>
           </h1>
-          <p className="mt-0.5 text-xs text-slate-500">
-            Catálogo mundial · USGS, EMSC, GeoNet, Geoscience Australia, INGV y
-            SGC
-          </p>
+          <p className="mt-0.5 text-xs text-slate-500">{t.subtitle}</p>
         </div>
         <div className="flex flex-wrap items-center gap-4 text-xs">
           {latest && (
             <div>
               <div className="text-[11px] uppercase tracking-wider text-slate-500">
-                Último evento
+                {t.lastEvent}
               </div>
               <div className="mt-0.5 flex items-center gap-2">
                 <Badge color={magColor(latest.mag)}>
@@ -199,14 +308,16 @@ export default function App() {
                 <span className="max-w-[220px] truncate text-slate-300">
                   {latest.place}
                 </span>
-                <span className="text-slate-600">{fmtAgo(latest.time)}</span>
+                <span className="text-slate-600">
+                  {fmtAgo(latest.time, now, lang)}
+                </span>
               </div>
             </div>
           )}
           {strongest && (
             <div>
               <div className="text-[11px] uppercase tracking-wider text-slate-500">
-                Mayor en 30 días
+                {t.strongest30d}
               </div>
               <div className="mt-0.5 flex items-center gap-2">
                 <Badge color={magColor(strongest.mag)}>
@@ -218,25 +329,46 @@ export default function App() {
               </div>
             </div>
           )}
+          <label className="flex flex-col gap-1">
+            <span className="text-[11px] uppercase tracking-wider text-slate-500">
+              {t.langLabel}
+            </span>
+            <select
+              className={inputClass}
+              value={lang}
+              onChange={(e) => setLang(e.target.value as Lang)}
+              aria-label={t.langLabel}
+            >
+              <option value="es">ES</option>
+              <option value="en">EN</option>
+            </select>
+          </label>
+          <button className={buttonClass} onClick={() => void onShare()}>
+            {shareStatus === "ok"
+              ? t.shared
+              : shareStatus === "fail"
+                ? t.shareFailed
+                : t.share}
+          </button>
           <button className={buttonClass} onClick={() => active.reload(true)}>
-            Actualizar
+            {t.refresh}
           </button>
         </div>
       </header>
 
       <nav className="flex flex-wrap gap-1 border-b border-ink-800 pb-px">
-        {TABS.map((t) => (
+        {t.tabs.map((tabDef) => (
           <button
-            key={t.id}
-            title={t.hint}
-            onClick={() => setTab(t.id)}
+            key={tabDef.id}
+            title={tabDef.hint}
+            onClick={() => setTab(tabDef.id)}
             className={`rounded-t-lg border-b-2 px-3 py-2 text-sm transition ${
-              tab === t.id
+              tab === tabDef.id
                 ? "border-sky-400 text-slate-100"
                 : "border-transparent text-slate-500 hover:text-slate-300"
             }`}
           >
-            {t.label}
+            {tabDef.label}
           </button>
         ))}
       </nav>
@@ -245,7 +377,7 @@ export default function App() {
         <div className="flex flex-wrap items-end gap-3 rounded-2xl border border-ink-800 bg-ink-900/50 p-3">
           <label className="flex flex-col gap-1">
             <span className="text-[11px] uppercase tracking-wider text-slate-500">
-              Catálogo
+              {t.catalog}
             </span>
             <select
               className={inputClass}
@@ -254,13 +386,13 @@ export default function App() {
                 setSource(e.target.value as "reciente" | "historico")
               }
             >
-              <option value="reciente">Últimos 30 días (M≥2.5)</option>
-              <option value="historico">Histórico desde {histStartYear}</option>
+              <option value="reciente">{t.recent30}</option>
+              <option value="historico">{t.historicFrom(histStartYear)}</option>
             </select>
           </label>
           <label className="flex flex-col gap-1">
             <span className="text-[11px] uppercase tracking-wider text-slate-500">
-              Magnitud mínima:{" "}
+              {t.minMag}:{" "}
               <b className="font-mono text-slate-200">{minMag.toFixed(1)}</b>
             </span>
             <input
@@ -275,7 +407,7 @@ export default function App() {
           </label>
           <label className="flex flex-col gap-1">
             <span className="text-[11px] uppercase tracking-wider text-slate-500">
-              Profundidad máx:{" "}
+              {t.maxDepth}:{" "}
               <b className="font-mono text-slate-200">{maxDepth} km</b>
             </span>
             <input
@@ -290,22 +422,22 @@ export default function App() {
           </label>
           <label className="flex flex-col gap-1">
             <span className="text-[11px] uppercase tracking-wider text-slate-500">
-              Zona
+              {t.zone}
             </span>
             <select
               className={inputClass}
               value={regionId}
               onChange={(e) => selectRegion(e.target.value)}
             >
-              <option value="">Todo el planeta</option>
-              <optgroup label="América Latina">
+              <option value="">{t.wholePlanet}</option>
+              <optgroup label={t.latinAmerica}>
                 {REGIONS.map((r) => (
                   <option key={r.id} value={r.id}>
                     {r.name} — {r.country}
                   </option>
                 ))}
               </optgroup>
-              <optgroup label="Resto del mundo">
+              <optgroup label={t.restOfWorld}>
                 {WORLD_REGIONS.map((r) => (
                   <option key={r.id} value={r.id}>
                     {r.name} — {r.country}
@@ -318,7 +450,7 @@ export default function App() {
             <>
               <label className="flex flex-col gap-1">
                 <span className="text-[11px] uppercase tracking-wider text-slate-500">
-                  Color
+                  {t.color}
                 </span>
                 <select
                   className={inputClass}
@@ -327,8 +459,8 @@ export default function App() {
                     setColorBy(e.target.value as "mag" | "depth")
                   }
                 >
-                  <option value="mag">Por magnitud</option>
-                  <option value="depth">Por profundidad</option>
+                  <option value="mag">{t.byMag}</option>
+                  <option value="depth">{t.byDepth}</option>
                 </select>
               </label>
               <label className="flex items-center gap-2 pb-1.5 text-xs text-slate-400">
@@ -338,7 +470,7 @@ export default function App() {
                   onChange={(e) => setShowHeat(e.target.checked)}
                   className="accent-sky-500"
                 />
-                Mapa de calor
+                {t.heatMap}
               </label>
               <label className="flex items-center gap-2 pb-1.5 text-xs text-slate-400">
                 <input
@@ -347,7 +479,7 @@ export default function App() {
                   onChange={(e) => setShowRegions(e.target.checked)}
                   className="accent-sky-500"
                 />
-                Zonas
+                {t.zones}
               </label>
             </>
           )}
@@ -358,7 +490,7 @@ export default function App() {
         <div className="flex flex-wrap items-end gap-3 rounded-2xl border border-ink-800 bg-ink-900/50 p-3">
           <label className="flex flex-col gap-1">
             <span className="text-[11px] uppercase tracking-wider text-slate-500">
-              Catálogo desde
+              {t.catalogFrom}
             </span>
             <select
               className={inputClass}
@@ -374,7 +506,7 @@ export default function App() {
           </label>
           <label className="flex flex-col gap-1">
             <span className="text-[11px] uppercase tracking-wider text-slate-500">
-              Magnitud mínima:{" "}
+              {t.minMag}:{" "}
               <b className="font-mono text-slate-200">
                 {histMinMag.toFixed(1)}
               </b>
@@ -391,7 +523,7 @@ export default function App() {
           </label>
           <label className="flex flex-col gap-1">
             <span className="text-[11px] uppercase tracking-wider text-slate-500">
-              Red
+              {t.network}
             </span>
             <select
               className={inputClass}
@@ -400,37 +532,46 @@ export default function App() {
                 setCatalogSource(e.target.value as CatalogSource)
               }
             >
-              <optgroup label="— Global —">
-                <option value="USGS">USGS — global (recomendado)</option>
+              <optgroup label={t.networkGroups.global}>
+                <option value="USGS">{t.networkLabels.USGS}</option>
               </optgroup>
-              <optgroup label="— Europa y Mediterráneo —">
-                <option value="EMSC">EMSC — SeismicPortal</option>
-                <option value="USGS+EMSC">USGS + EMSC</option>
-                <option value="INGV">INGV — Italia</option>
-                <option value="USGS+INGV">USGS + INGV</option>
+              <optgroup label={t.networkGroups.europe}>
+                <option value="EMSC">{t.networkLabels.EMSC}</option>
+                <option value="USGS+EMSC">{t.networkLabels["USGS+EMSC"]}</option>
+                <option value="INGV">{t.networkLabels.INGV}</option>
+                <option value="USGS+INGV">{t.networkLabels["USGS+INGV"]}</option>
+                <option value="GFZ">{t.networkLabels.GFZ}</option>
+                <option value="USGS+GFZ">{t.networkLabels["USGS+GFZ"]}</option>
+                <option value="IPGP">{t.networkLabels.IPGP}</option>
+                <option value="USGS+IPGP">{t.networkLabels["USGS+IPGP"]}</option>
               </optgroup>
-              <optgroup label="— Oceanía y Pacífico —">
-                <option value="GEONET">GeoNet — Nueva Zelanda</option>
-                <option value="USGS+GEONET">USGS + GeoNet</option>
-                <option value="GA">Geoscience Australia</option>
-                <option value="USGS+GA">USGS + GA</option>
+              <optgroup label={t.networkGroups.oceania}>
+                <option value="GEONET">{t.networkLabels.GEONET}</option>
+                <option value="USGS+GEONET">
+                  {t.networkLabels["USGS+GEONET"]}
+                </option>
+                <option value="GA">{t.networkLabels.GA}</option>
+                <option value="USGS+GA">{t.networkLabels["USGS+GA"]}</option>
               </optgroup>
-              <optgroup label="— Colombia (SGC) —">
-                <option value="ambos">USGS + SGC — Colombia desde 1610</option>
-                <option value="SGC">Solo SGC — Colombia, 1610–hoy</option>
+              <optgroup label={t.networkGroups.americas}>
+                <option value="SSN">{t.networkLabels.SSN}</option>
+                <option value="USGS+SSN">{t.networkLabels["USGS+SSN"]}</option>
+                <option value="ambos">{t.networkLabels.ambos}</option>
+                <option value="SGC">{t.networkLabels.SGC}</option>
               </optgroup>
             </select>
           </label>
           <p className="pb-1.5 text-xs text-slate-500">
-            {scoped ? region.name : "Todo el planeta"} ·{" "}
-            {hist.quakes.length.toLocaleString("es-CO")} eventos ·{" "}
-            {fmtNum((now - histQuery.startTime) / DAY_MS / 365.25, 0)} años
+            {scoped ? region.name : t.wholePlanet} · {nl(hist.quakes.length)}{" "}
+            {t.events} ·{" "}
+            {fmtNum((now - histQuery.startTime) / DAY_MS / 365.25, 0, locale)}{" "}
+            {t.years}
             {Object.keys(hist.counts).length > 0 &&
               " · " +
                 Object.entries(hist.counts)
-                  .map(([net, n]) => `${n.toLocaleString("es-CO")} ${net}`)
+                  .map(([net, n]) => `${nl(n)} ${net}`)
                   .join(" + ")}
-            {hist.fromCache && " · desde caché local"}
+            {hist.fromCache && ` · ${t.fromCache}`}
           </p>
         </div>
       )}
@@ -440,23 +581,18 @@ export default function App() {
           <Spinner
             label={
               active.progress
-                ? `Descargando catálogo… ${active.progress.loaded.toLocaleString("es-CO")} de ~${active.progress.total.toLocaleString("es-CO")} eventos`
-                : "Consultando el USGS…"
+                ? t.downloading(
+                    nl(active.progress.loaded),
+                    nl(active.progress.total),
+                  )
+                : t.querying
             }
           />
         </div>
       )}
-      {active.error && (
-        <Note tone="warn">
-          No se pudo cargar el catálogo: {active.error}. Revisa la conexión y
-          pulsa Actualizar.
-        </Note>
-      )}
+      {active.error && <Note tone="warn">{t.loadError(active.error)}</Note>}
       {active.degraded.length > 0 && (
-        <Note tone="warn">
-          {active.degraded.join(" y ")} no respondió; se sigue con el resto de
-          fuentes.
-        </Note>
+        <Note tone="warn">{t.degraded(active.degraded.join(" / "))}</Note>
       )}
       {active.warnings.map((w) => (
         <Note key={w} tone="warn">
@@ -480,7 +616,7 @@ export default function App() {
             {decadas.length > 1 && (
               <div className="flex flex-wrap items-center gap-1.5 text-xs">
                 <span className="mr-1 text-[11px] uppercase tracking-wider text-slate-500">
-                  Década
+                  {t.decade}
                 </span>
                 <button
                   onClick={() => setDecada(null)}
@@ -490,13 +626,13 @@ export default function App() {
                       : "border-ink-700 text-slate-400 hover:border-ink-600 hover:text-slate-200"
                   }`}
                 >
-                  Todas
+                  {t.all}
                 </button>
                 {decadas.map(([d, n]) => (
                   <button
                     key={d}
                     onClick={() => setDecada(decada === d ? null : d)}
-                    title={`${n.toLocaleString("es-CO")} eventos`}
+                    title={`${nl(n)} ${t.events}`}
                     className={`rounded-md border px-2 py-1 font-mono text-[11px] transition ${
                       decada === d
                         ? "border-sky-500/60 bg-sky-500/10 text-sky-300"
@@ -510,9 +646,7 @@ export default function App() {
             )}
 
             <div className="flex flex-wrap items-center gap-4 text-xs text-slate-500">
-              <span>
-                {filtered.length.toLocaleString("es-CO")} eventos en pantalla
-              </span>
+              <span>{t.onScreen(nl(filtered.length))}</span>
               <span className="flex flex-wrap items-center gap-2">
                 {colorBy === "mag"
                   ? MAG_CLASSES.map((m) => {
@@ -527,9 +661,7 @@ export default function App() {
                                 : [...prev, m],
                             )
                           }
-                          title={
-                            oculta ? "Mostrar esta clase" : "Ocultar esta clase"
-                          }
+                          title={oculta ? t.showClass : t.hideClass}
                           className={`flex items-center gap-1 rounded px-1 py-0.5 transition hover:bg-ink-800 ${
                             oculta ? "opacity-35" : ""
                           }`}
@@ -568,13 +700,11 @@ export default function App() {
                   }}
                   className="text-slate-400 underline underline-offset-2 hover:text-slate-200"
                 >
-                  Quitar filtros
+                  {t.clearFilters}
                 </button>
               )}
               {colorBy === "mag" && clasesOcultas.length === 0 && (
-                <span className="text-slate-600">
-                  Pulsa una clase para ocultarla
-                </span>
+                <span className="text-slate-600">{t.clickToHide}</span>
               )}
             </div>
           </div>
@@ -588,7 +718,7 @@ export default function App() {
           />
         )}
 
-        <Suspense fallback={<Spinner label="Cargando módulo…" />}>
+        <Suspense fallback={<Spinner label={t.loadingModule} />}>
           {tab === "analisis" && <Analytics quakes={filtered} />}
           {tab === "pronostico" && <Forecast quakes={hist.quakes} />}
           {tab === "intensidad" && <Hazard quakes={hist.quakes} />}
@@ -598,11 +728,7 @@ export default function App() {
       </main>
 
       <footer className="border-t border-ink-800 pt-3 text-[11px] leading-relaxed text-slate-600">
-        Datos: USGS Earthquake Hazards Program y Servicio Geológico Colombiano
-        (dominio público). Los pronósticos son estimaciones estadísticas
-        propias, no productos oficiales del USGS ni del SGC, y no predicen
-        sismos individuales. Para decisiones de construcción o emergencia mandan
-        las autoridades nacionales y la norma sismorresistente vigente.
+        {t.footer}
       </footer>
       {intensityQuake && (
         <QuakeIntensityPanel

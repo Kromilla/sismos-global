@@ -13,6 +13,12 @@ npm run dev
 Abre `http://localhost:5173`. Para publicar: `npm run build` genera `dist/` con rutas relativas,
 listo para GitHub Pages, Netlify o Vercel.
 
+### Compartir y descubrir
+
+- Interfaz del shell en **español e inglés** (`?lang=es` / `?lang=en`, selector en la cabecera).
+- La vista se refleja en la URL (`tab`, `region`, `catalog`, `from`, …): botón **Compartir vista**.
+- Meta SEO / Open Graph / JSON-LD en `index.html`. Al desplegar, añade `og:url` y `og:image` absolutos con tu dominio.
+
 ---
 
 ## Lo primero, sin rodeos

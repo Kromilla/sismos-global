@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+
+# Sustituye por la URL canónica cuando publiques (Vercel, Pages, Netlify).
+# Sitemap: https://TU-DOMINIO/sitemap.xml
