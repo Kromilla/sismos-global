@@ -253,3 +253,56 @@ export function bboxOf(quakes: Quake[]): Bbox | null {
   }
   return { minLat, maxLat, minLon, maxLon };
 }
+
+/**
+ * Consulta un evento individual por ID contra USGS o EMSC.
+ * Permite resolver enlaces compartidos (?quake=id) incluso de eventos
+ * históricos o fuera del radio de carga en vivo.
+ */
+export async function fetchSingleQuake(
+  fullOrRawId: string,
+  signal?: AbortSignal,
+): Promise<Quake | null> {
+  const colonIndex = fullOrRawId.indexOf(":");
+  const netId = colonIndex !== -1 ? fullOrRawId.slice(0, colonIndex) : null;
+  const rawId =
+    colonIndex !== -1 ? fullOrRawId.slice(colonIndex + 1) : fullOrRawId;
+
+  // 1. Intentar USGS
+  if (!netId || netId === "USGS") {
+    try {
+      const res = await fetch(
+        `https://earthquake.usgs.gov/fdsnws/event/1/query?eventid=${encodeURIComponent(rawId)}&format=geojson`,
+        { signal },
+      );
+      if (res.ok) {
+        const data = (await res.json()) as FdsnFeature;
+        if (data && data.geometry && data.properties) {
+          return toQuake(data, FDSN_NETWORKS.USGS);
+        }
+      }
+    } catch {
+      // Probar siguiente
+    }
+  }
+
+  // 2. Intentar EMSC
+  if (!netId || netId === "EMSC") {
+    try {
+      const res = await fetch(
+        `https://www.seismicportal.eu/fdsnws/event/1/query?eventid=${encodeURIComponent(rawId)}&format=json`,
+        { signal },
+      );
+      if (res.ok) {
+        const data = (await res.json()) as FdsnFeature;
+        if (data && data.geometry && data.properties) {
+          return toQuake(data, FDSN_NETWORKS.EMSC);
+        }
+      }
+    } catch {
+      // Ignorar
+    }
+  }
+
+  return null;
+}

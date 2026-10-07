@@ -17,6 +17,17 @@ export default function EventsTable({
 }) {
   const [sort, setSort] = useState<SortKey>("time");
   const [limit, setLimit] = useState(100);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  const handleCopyLink = (q: Quake) => {
+    const url = new URL(window.location.href);
+    url.searchParams.set("quake", q.id);
+    url.searchParams.set("tab", "mapa");
+    navigator.clipboard.writeText(url.toString()).then(() => {
+      setCopiedId(q.id);
+      setTimeout(() => setCopiedId(null), 2000);
+    });
+  };
 
   const rows = useMemo(() => {
     const sorted = [...quakes].sort((a, b) => {
@@ -102,8 +113,20 @@ export default function EventsTable({
                     <button
                       className={buttonClass}
                       onClick={() => onFocus?.(q)}
+                      title="Ver en el mapa y abrir ficha"
                     >
                       Ver
+                    </button>
+                    <button
+                      className={`${buttonClass} ${
+                        copiedId === q.id
+                          ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/50"
+                          : ""
+                      }`}
+                      onClick={() => handleCopyLink(q)}
+                      title="Copiar enlace directo a este sismo"
+                    >
+                      {copiedId === q.id ? "✓ Copiado" : "🔗"}
                     </button>
                     <button
                       className={buttonClass}
