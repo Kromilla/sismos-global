@@ -631,3 +631,260 @@ export function buildSyntheticWaveform(
   };
 }
 
+export type PagerAlertLevel = "green" | "yellow" | "orange" | "red";
+
+export interface PagerExposureBin {
+  roman: string;
+  mmi: number;
+  popK: number;
+  color: string;
+}
+
+export interface PagerAssessment {
+  level: PagerAlertLevel;
+  color: string;
+  labelEs: string;
+  labelEn: string;
+  summaryEs: string;
+  summaryEn: string;
+  bins: PagerExposureBin[];
+  exposedMmi6PopK: number;
+  exposedMmi8PopK: number;
+  empiricalLossIndex: number;
+}
+
+function stdNormalCdf(z: number): number {
+  const t = 1 / (1 + 0.2316419 * Math.abs(z));
+  const d = 0.3989422804014327 * Math.exp((-z * z) / 2);
+  const p =
+    d *
+    t *
+    (0.31938153 +
+      t *
+        (-0.356563782 +
+          t * (1.781477937 + t * (-1.821255978 + 1.330274429 * t))));
+  return z >= 0 ? 1 - p : p;
+}
+
+/**
+ * Evaluación rápida de exposición poblacional y nivel de alerta humanitaria/económica
+ * inspirada en el modelo empírico lognormal USGS PAGER de Jaiswal & Wald (2010):
+ *   r(MMI) = Φ( (1 / β) * ln(MMI / θ) )
+ * Agrupa la población expuesta de las ciudades de referencia en bandas MMI IV a IX+.
+ */
+export function estimatePagerImpact(
+  cityImpacts: ReadonlyArray<{ mmi: number; popK: number }>,
+  epicentralMmi = 1,
+): PagerAssessment {
+  const binDefs = [
+    { roman: "IV", mmi: 4, lo: 3.5, hi: 4.5 },
+    { roman: "V", mmi: 5, lo: 4.5, hi: 5.5 },
+    { roman: "VI", mmi: 6, lo: 5.5, hi: 6.5 },
+    { roman: "VII", mmi: 7, lo: 6.5, hi: 7.5 },
+    { roman: "VIII", mmi: 8, lo: 7.5, hi: 8.5 },
+    { roman: "IX+", mmi: 9, lo: 8.5, hi: 99 },
+  ];
+
+  const bins: PagerExposureBin[] = binDefs.map((b) => ({
+    roman: b.roman,
+    mmi: b.mmi,
+    popK: 0,
+    color: mmiColor(b.mmi),
+  }));
+
+  let exposedMmi6PopK = 0;
+  let exposedMmi8PopK = 0;
+  let expectedAffectedK = 0;
+
+  // Parámetros empíricos tipo Jaiswal & Wald (2010) para tasa de daño/afectación severa
+  const theta = 9.6;
+  const beta = 0.21;
+
+  for (const item of cityImpacts) {
+    if (item.popK <= 0 || item.mmi < 3.5) continue;
+    for (let i = 0; i < binDefs.length; i++) {
+      if (item.mmi >= binDefs[i].lo && item.mmi < binDefs[i].hi) {
+        bins[i].popK += item.popK;
+        break;
+      }
+    }
+    if (item.mmi >= 5.5) exposedMmi6PopK += item.popK;
+    if (item.mmi >= 7.5) exposedMmi8PopK += item.popK;
+
+    if (item.mmi >= 5.0) {
+      const rate = stdNormalCdf(Math.log(item.mmi / theta) / beta);
+      expectedAffectedK += item.popK * rate;
+    }
+  }
+
+  // Si el epicentro es muy intenso en zona despoblada, reflejamos un piso por intensidad epicentral
+  const epFloor =
+    epicentralMmi >= 8.5
+      ? 28
+      : epicentralMmi >= 7.5
+        ? 14
+        : epicentralMmi >= 6.5
+          ? 5
+          : 0;
+  const empiricalLossIndex = clamp(
+    Math.round(
+      Math.max(
+        epFloor,
+        Math.log10(1 + expectedAffectedK * 120 + exposedMmi6PopK * 0.4) * 22,
+      ),
+    ),
+    0,
+    100,
+  );
+
+  if (expectedAffectedK >= 15 || exposedMmi8PopK >= 1200 || empiricalLossIndex >= 75) {
+    return {
+      level: "red",
+      color: "#ef4444",
+      labelEs: "Alerta Roja (Impacto severo)",
+      labelEn: "Red Alert (Severe impact)",
+      summaryEs:
+        "Alta población expuesta a sacudidas destructivas (MMI ≥ VIII). Probable daño estructural extenso.",
+      summaryEn:
+        "High population exposed to destructive shaking (MMI ≥ VIII). Extensive structural damage likely.",
+      bins,
+      exposedMmi6PopK,
+      exposedMmi8PopK,
+      empiricalLossIndex,
+    };
+  }
+  if (expectedAffectedK >= 1.5 || exposedMmi8PopK >= 150 || exposedMmi6PopK >= 2500 || empiricalLossIndex >= 50) {
+    return {
+      level: "orange",
+      color: "#f97316",
+      labelEs: "Alerta Naranja (Impacto regional)",
+      labelEn: "Orange Alert (Regional impact)",
+      summaryEs:
+        "Sacudida muy fuerte en centros urbanos. Daños moderados a severos en edificaciones vulnerables.",
+      summaryEn:
+        "Very strong shaking in urban centers. Moderate to severe damage in vulnerable buildings.",
+      bins,
+      exposedMmi6PopK,
+      exposedMmi8PopK,
+      empiricalLossIndex,
+    };
+  }
+  if (exposedMmi6PopK >= 100 || epicentralMmi >= 6.2 || empiricalLossIndex >= 22) {
+    return {
+      level: "yellow",
+      color: "#facc15",
+      labelEs: "Alerta Amarilla (Impacto local)",
+      labelEn: "Yellow Alert (Localized impact)",
+      summaryEs:
+        "Sacudida fuerte localizada (MMI VI–VII). Posibles grietas en mampostería no reforzada y caída de objetos.",
+      summaryEn:
+        "Localized strong shaking (MMI VI–VII). Possible cracking in unreinforced masonry and fallen objects.",
+      bins,
+      exposedMmi6PopK,
+      exposedMmi8PopK,
+      empiricalLossIndex,
+    };
+  }
+  return {
+    level: "green",
+    color: "#4ade80",
+    labelEs: "Alerta Verde (Impacto mínimo)",
+    labelEn: "Green Alert (Minimal impact)",
+    summaryEs:
+      "Sin daños estructurales significativos esperados en las ciudades de referencia.",
+    summaryEn:
+      "No significant structural damage expected across reference urban centers.",
+    bins,
+    exposedMmi6PopK,
+    exposedMmi8PopK,
+    empiricalLossIndex,
+  };
+}
+
+/**
+ * Sonificación sísmica en el navegador (Web Audio API): convierte la llegada de la
+ * onda P (compresiva, más aguda) y el tren de ondas S/superficiales (cizalla, grave)
+ * a frecuencias audibles (escalado ×30 Hz, estilo IRIS/USGS SeismoSound).
+ */
+export function playSeismogramAudio(
+  mag: number,
+  rhypoKm: number,
+  depthKm = 15,
+  siteDeltaMmi = 0,
+): boolean {
+  if (typeof window === "undefined") return false;
+  const AudioCtx =
+    window.AudioContext ||
+    (window as unknown as { webkitAudioContext?: typeof AudioContext })
+      .webkitAudioContext;
+  if (!AudioCtx) return false;
+
+  try {
+    const ctx = new AudioCtx();
+    const sampleRate = ctx.sampleRate;
+    const arrivals = estimateWaveArrivals(rhypoKm, depthKm);
+    const spDelayAudio = clamp(arrivals.warningLeadSec * 0.055, 0.35, 1.35);
+    const pStart = 0.15;
+    const sStart = pStart + spDelayAudio;
+    const duration = clamp(sStart + 1.4 + (mag - 4.5) * 0.25, 2.2, 3.8);
+    const length = Math.floor(sampleRate * duration);
+    const buffer = ctx.createBuffer(1, length, sampleRate);
+    const data = buffer.getChannelData(0);
+
+    // Frecuencia base modulada por magnitud y tipo de suelo (suelo blando suena más grave y resonante)
+    const pFreq = clamp(210 - (mag - 5) * 18, 130, 260);
+    const sFreq = clamp(82 - (mag - 5) * 9 - siteDeltaMmi * 12, 42, 115);
+
+    let maxAbs = 1e-5;
+    for (let i = 0; i < length; i++) {
+      const t = i / sampleRate;
+      let sample = 0;
+
+      if (t >= pStart) {
+        const dtP = t - pStart;
+        const pEnv = Math.exp(-dtP / 0.22) * Math.min(1, dtP / 0.015);
+        sample +=
+          0.38 *
+          pEnv *
+          (Math.sin(2 * Math.PI * pFreq * dtP) +
+            0.4 * Math.sin(2 * Math.PI * (pFreq * 1.45) * dtP));
+      }
+
+      if (t >= sStart) {
+        const dtS = t - sStart;
+        const tau = 0.38 + siteDeltaMmi * 0.18 + Math.max(0, mag - 5) * 0.08;
+        const sEnv =
+          Math.pow(dtS / tau, 0.55) *
+          Math.exp(-dtS / (tau * 1.35)) *
+          (1.2 + siteDeltaMmi * 0.25);
+        const pseudoNoise =
+          Math.sin(i * 0.037) * 0.3 + Math.cos(i * 0.083) * 0.2;
+        sample +=
+          sEnv *
+          (0.65 * Math.sin(2 * Math.PI * sFreq * dtS) +
+            0.35 * Math.sin(2 * Math.PI * (sFreq * 1.62) * dtS) +
+            0.25 * pseudoNoise);
+      }
+
+      data[i] = sample;
+      if (Math.abs(sample) > maxAbs) maxAbs = Math.abs(sample);
+    }
+
+    const gainScale = clamp(0.25 + (mag - 4) * 0.14, 0.2, 0.85) / maxAbs;
+    for (let i = 0; i < length; i++) {
+      data[i] *= gainScale;
+    }
+
+    const src = ctx.createBufferSource();
+    src.buffer = buffer;
+    src.connect(ctx.destination);
+    src.onended = () => {
+      void ctx.close();
+    };
+    src.start();
+    return true;
+  } catch {
+    return false;
+  }
+}
+

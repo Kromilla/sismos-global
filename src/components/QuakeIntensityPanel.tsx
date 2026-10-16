@@ -7,6 +7,7 @@ import {
   SITE_CLASSES,
   buildResponseSpectrum,
   buildSyntheticWaveform,
+  estimatePagerImpact,
   estimateWaveArrivals,
   hypocentralKm,
   inferTectonicRegime,
@@ -15,6 +16,7 @@ import {
   mmiRoman,
   mmiToPga,
   pgaToG,
+  playSeismogramAudio,
   radiusForMmi,
   seismicMomentNm,
   siteClassById,
@@ -182,6 +184,21 @@ export default function QuakeIntensityPanel({
 
   const epicentralMmi = mmiFnWithSite(quake.mag, hypocentralKm(0, quake.depth));
   const maxMmi = Math.max(rows[0]?.mmi ?? 0, epicentralMmi);
+  const pager = useMemo(
+    () =>
+      estimatePagerImpact(
+        rows.map((r) => ({ mmi: r.mmi, popK: r.city.popK })),
+        epicentralMmi,
+      ),
+    [rows, epicentralMmi],
+  );
+  const [audioPlaying, setAudioPlaying] = useState(false);
+
+  const fmtPop = (popK: number) => {
+    if (popK <= 0) return "0";
+    if (popK >= 1000) return `${(popK / 1000).toFixed(1)}M`;
+    return `${Math.round(popK)}k`;
+  };
 
   const customRhypo = hypocentralKm(customDistKm, quake.depth);
   const customMmi = mmiFnWithSite(quake.mag, customRhypo);
@@ -559,6 +576,39 @@ export default function QuakeIntensityPanel({
                 >
                   {en ? "Spectrum Sa(T) · Buildings" : "Espectro Sa(T) · Edificios"}
                 </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const ok = playSeismogramAudio(
+                      quake.mag,
+                      customRhypo,
+                      quake.depth,
+                      site.deltaMmi,
+                    );
+                    if (ok) {
+                      setAudioPlaying(true);
+                      window.setTimeout(() => setAudioPlaying(false), 2600);
+                    }
+                  }}
+                  title={
+                    en
+                      ? "Sonify P and S seismic waves (Web Audio API ×30 Hz speed-up)"
+                      : "Sonificar ondas sísmicas P y S (Web Audio API acelerado ×30 Hz)"
+                  }
+                  className={`rounded-md px-2 py-0.5 font-medium transition ${
+                    audioPlaying
+                      ? "bg-emerald-500/25 text-emerald-300"
+                      : "text-emerald-400 hover:bg-emerald-500/15"
+                  }`}
+                >
+                  {audioPlaying
+                    ? en
+                      ? "🔊 Playing…"
+                      : "🔊 Sonando…"
+                    : en
+                      ? "🔊 Sonify P/S"
+                      : "🔊 Sonificar P/S"}
+                </button>
               </div>
             </div>
 
@@ -728,6 +778,85 @@ export default function QuakeIntensityPanel({
                 </div>
               </div>
             )}
+          </div>
+        </div>
+
+        {/* Evaluación de Exposición Poblacional estilo USGS PAGER (Jaiswal & Wald 2010) */}
+        <div className="border-b border-slate-800 bg-slate-950/50 px-5 py-2.5 space-y-2">
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                {en ? "PAGER Impact:" : "Nivel PAGER:"}
+              </span>
+              <span
+                className="rounded-md px-2 py-0.5 text-xs font-bold text-slate-950"
+                style={{ background: pager.color }}
+              >
+                {en ? pager.labelEn : pager.labelEs}
+              </span>
+              <div
+                className="flex items-center gap-1"
+                title={
+                  en
+                    ? `Empirical impact index: ${pager.empiricalLossIndex}/100 (Jaiswal & Wald 2010)`
+                    : `Índice empírico de impacto: ${pager.empiricalLossIndex}/100 (Jaiswal & Wald 2010)`
+                }
+              >
+                {(
+                  [
+                    { id: "green", c: "#4ade80" },
+                    { id: "yellow", c: "#facc15" },
+                    { id: "orange", c: "#f97316" },
+                    { id: "red", c: "#ef4444" },
+                  ] as const
+                ).map((step) => (
+                  <span
+                    key={step.id}
+                    className={`h-2.5 w-4 rounded-sm transition ${
+                      pager.level === step.id
+                        ? "ring-1 ring-white scale-110"
+                        : "opacity-25"
+                    }`}
+                    style={{ background: step.c }}
+                  />
+                ))}
+              </div>
+            </div>
+            <span className="text-[11px] text-slate-400">
+              {en ? "Pop. MMI ≥ VI:" : "Pob. MMI ≥ VI:"}{" "}
+              <b className="font-mono text-slate-200">
+                {fmtPop(pager.exposedMmi6PopK)}
+              </b>
+              {pager.exposedMmi8PopK > 0 && (
+                <>
+                  {" · "}
+                  <span className="text-rose-400">
+                    MMI ≥ VIII: <b>{fmtPop(pager.exposedMmi8PopK)}</b>
+                  </span>
+                </>
+              )}
+            </span>
+          </div>
+          <p className="text-[11px] text-slate-400">
+            {en ? pager.summaryEn : pager.summaryEs}
+          </p>
+          <div className="grid grid-cols-6 gap-1.5 pt-0.5 text-center text-[10px]">
+            {pager.bins.map((b) => (
+              <div
+                key={b.roman}
+                className="rounded border border-slate-800/80 bg-slate-900/80 px-1.5 py-1"
+              >
+                <div
+                  className="mx-auto mb-0.5 inline-block rounded px-1.5 font-mono text-[10px] font-bold text-slate-950"
+                  style={{ background: b.color }}
+                >
+                  {b.roman}
+                </div>
+                <div className="font-mono text-[11px] text-slate-200">
+                  {fmtPop(b.popK)}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
 

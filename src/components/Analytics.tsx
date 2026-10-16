@@ -30,8 +30,8 @@ import {
   buildCrossSection,
   type ProfileAxis,
 } from "../science/crossSection";
-import { energyJoules } from "../science/stats";
-import { fmtNum, fmtYears, magColor } from "../ui/format";
+import { buildBenioffCurve, energyJoules } from "../science/stats";
+import { fmtDateTime, fmtNum, fmtYears, magColor } from "../ui/format";
 
 const axis = { stroke: "#475569", fontSize: 11 };
 const grid = { stroke: "#1e293b", strokeDasharray: "3 3" };
@@ -126,8 +126,45 @@ export default function Analytics({
       .map((q) => ({ depth: q.depth, mag: q.mag, z: 1 }));
 
     const cluster = decluster(quakes);
+    const benioffChart = buildBenioffCurve(quakes, 60);
 
-    return { gr, fmdChart, yearChart, depthChart, hourChart, scatter, cluster };
+    // Tambor sismográfico (Helicorder): 12 líneas horizontales con los 120 eventos más recientes
+    const recentQuakes = [...quakes]
+      .sort((a, b) => a.time - b.time)
+      .slice(-120);
+    const hMinT = recentQuakes[0]?.time ?? 0;
+    const hMaxT = recentQuakes[recentQuakes.length - 1]?.time ?? 1;
+    const hSpan = Math.max(3_600_000, hMaxT - hMinT);
+    const lineCount = 12;
+    const lineDur = hSpan / lineCount;
+    const helicorderLines = Array.from({ length: lineCount }, (_, idx) => {
+      const t0 = hMinT + idx * lineDur;
+      const t1 = t0 + lineDur;
+      const d = new Date(t0);
+      const label =
+        hSpan <= 7 * 86_400_000
+          ? `${d.toISOString().slice(5, 10)} ${d.toISOString().slice(11, 16)}`
+          : d.toISOString().slice(0, 10);
+      const events = recentQuakes
+        .filter((q) => q.time >= t0 && (idx === lineCount - 1 ? q.time <= t1 : q.time < t1))
+        .map((q) => ({
+          quake: q,
+          frac: Math.max(0.02, Math.min(0.98, (q.time - t0) / lineDur)),
+        }));
+      return { idx, label, events };
+    });
+
+    return {
+      gr,
+      fmdChart,
+      yearChart,
+      depthChart,
+      hourChart,
+      scatter,
+      cluster,
+      benioffChart,
+      helicorderLines,
+    };
   }, [quakes]);
 
   if (!analysis)
@@ -138,8 +175,17 @@ export default function Analytics({
           : "Se necesitan al menos 30 eventos para el análisis estadístico."}
       </Empty>
     );
-  const { gr, fmdChart, yearChart, depthChart, hourChart, scatter, cluster } =
-    analysis;
+  const {
+    gr,
+    fmdChart,
+    yearChart,
+    depthChart,
+    hourChart,
+    scatter,
+    cluster,
+    benioffChart,
+    helicorderLines,
+  } = analysis;
 
   return (
     <div className="space-y-4">
@@ -483,6 +529,158 @@ export default function Analytics({
           <Note>
             Un reparto plano confirma que no existe "hora sísmica": la sensación
             contraria viene de que de noche se sienten más.
+          </Note>
+        </Card>
+      </div>
+
+      {/* Curva Acumulada de Deformación de Benioff y Tambor Sismográfico (Helicorder) */}
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card
+          title={
+            en
+              ? "Cumulative Benioff Strain Release (∑√E)"
+              : "Liberación Acumulada de Deformación de Benioff (∑√E)"
+          }
+          subtitle={
+            en
+              ? "Square root of radiated seismic energy (10⁷ J¹/²) vs steady tectonic rate (Benioff, 1951)"
+              : "Raíz cuadrada de la energía sísmica radiada (10⁷ J¹/²) frente a la tasa tectónica estacionaria (Benioff, 1951)"
+          }
+        >
+          <div className="h-64">
+            <ResponsiveContainer>
+              <ComposedChart
+                data={benioffChart}
+                margin={{ top: 8, right: 12, bottom: 4, left: 0 }}
+              >
+                <CartesianGrid {...grid} />
+                <XAxis dataKey="label" {...axis} />
+                <YAxis {...axis} />
+                <RTooltip
+                  contentStyle={tooltipStyle}
+                  formatter={(v: unknown, n: unknown) => [
+                    `${fmtNum(Number(v), 2)} ×10⁷ J¹/²`,
+                    String(n),
+                  ]}
+                />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+                <Line
+                  type="stepAfter"
+                  dataKey="cumStrainG"
+                  name={en ? "Cumulative ∑√E" : "Deformación acumulada ∑√E"}
+                  stroke="#38bdf8"
+                  strokeWidth={2.2}
+                  dot={false}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="steadyG"
+                  name={en ? "Steady tectonic rate" : "Tasa estacionaria media"}
+                  stroke="#94a3b8"
+                  strokeDasharray="5 4"
+                  strokeWidth={1.5}
+                  dot={false}
+                />
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
+          <Note>
+            {en
+              ? "Flat segments indicate seismic quiescence (elastic strain accumulation); vertical steps mark sudden stress drop during major mainshocks."
+              : "Los tramos horizontales indican quietud sísmica (acumulación elástica); los escalones verticales marcan caídas súbitas de esfuerzo por grandes sismos."}
+          </Note>
+        </Card>
+
+        <Card
+          title={
+            en
+              ? "Observatory Seismograph Drum (Interactive Helicorder)"
+              : "Tambor Sismográfico de Observatorio (Helicorder Interactivo)"
+          }
+          subtitle={
+            en
+              ? "Recent catalog events plotted as wave packets along 12 drum lines. Click any packet to open its ShakeMap / MMI card."
+              : "Eventos recientes trazados como paquetes de ondas en 12 líneas de tambor. Haz clic en cualquier pulso para abrir su ficha MMI."
+          }
+        >
+          <div className="h-64 overflow-hidden rounded-xl border border-slate-800/80 bg-slate-950/80 p-2">
+            <svg
+              viewBox="0 0 560 230"
+              className="h-full w-full"
+              role="img"
+              aria-label={
+                en
+                  ? "Interactive seismograph helicorder drum"
+                  : "Tambor sismográfico helicorder interactivo"
+              }
+            >
+              {helicorderLines.map((line, rowIdx) => {
+                const y = 14 + rowIdx * 18;
+                const x0 = 76;
+                const x1 = 550;
+                const width = x1 - x0;
+                return (
+                  <g key={line.idx}>
+                    <text
+                      x={4}
+                      y={y + 3}
+                      fill="#64748b"
+                      fontSize="8.5"
+                      fontFamily="ui-monospace, monospace"
+                    >
+                      {line.label}
+                    </text>
+                    <line
+                      x1={x0}
+                      y1={y}
+                      x2={x1}
+                      y2={y}
+                      stroke="#1e293b"
+                      strokeWidth={1}
+                    />
+                    {line.events.map(({ quake: q, frac }) => {
+                      const cx = x0 + frac * width;
+                      const amp = Math.min(13, Math.max(2.5, (q.mag - 2.2) * 2.4));
+                      const d = [
+                        `M ${(cx - 6).toFixed(1)},${y}`,
+                        `L ${(cx - 4).toFixed(1)},${(y - amp * 0.45).toFixed(1)}`,
+                        `L ${(cx - 2).toFixed(1)},${(y + amp * 0.7).toFixed(1)}`,
+                        `L ${cx.toFixed(1)},${(y - amp).toFixed(1)}`,
+                        `L ${(cx + 2).toFixed(1)},${(y + amp * 0.85).toFixed(1)}`,
+                        `L ${(cx + 4.5).toFixed(1)},${(y - amp * 0.4).toFixed(1)}`,
+                        `L ${(cx + 7).toFixed(1)},${(y + amp * 0.2).toFixed(1)}`,
+                        `L ${(cx + 9.5).toFixed(1)},${y}`,
+                      ].join(" ");
+                      return (
+                        <g
+                          key={q.id}
+                          className="cursor-pointer transition-opacity hover:opacity-100"
+                          onClick={() => {
+                            if (onIntensity) onIntensity(q);
+                            else if (onFocus) onFocus(q);
+                          }}
+                        >
+                          <title>
+                            {`M${q.mag.toFixed(1)} · ${q.place} · ${fmtDateTime(q.time)} (${q.depth.toFixed(0)} km)`}
+                          </title>
+                          <path
+                            d={d}
+                            fill="none"
+                            stroke={magColor(q.mag)}
+                            strokeWidth={q.mag >= 6 ? 1.8 : 1.25}
+                          />
+                        </g>
+                      );
+                    })}
+                  </g>
+                );
+              })}
+            </svg>
+          </div>
+          <Note>
+            {en
+              ? "Inspired by IRIS / EarthScope helicorders: amplitude scales with magnitude and color reflects severity."
+              : "Inspirado en los helicorders de IRIS / EarthScope: la amplitud del paquete escala con la magnitud y el color refleja la severidad."}
           </Note>
         </Card>
       </div>

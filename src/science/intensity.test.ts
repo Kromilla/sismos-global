@@ -3,6 +3,7 @@ import {
   SITE_CLASSES,
   buildResponseSpectrum,
   buildSyntheticWaveform,
+  estimatePagerImpact,
   estimateWaveArrivals,
   inferTectonicRegime,
   radiusForMmi,
@@ -15,7 +16,7 @@ import { decluster } from "./declustering";
 import { bathExpectation, fitOmori } from "./omori";
 import { calibrateEtas, etasExpected } from "./etas";
 import { normalCdf, sitePsha } from "./psha";
-import { DAY_MS } from "./stats";
+import { DAY_MS, benioffStrain, buildBenioffCurve } from "./stats";
 import type { Quake } from "../types";
 
 describe("radiusForMmi", () => {
@@ -203,6 +204,34 @@ describe("Modelos estadísticos del catálogo (G–R, Weichert, G–K, Omori, ET
     expect(lacustrineSpec.tsSec).toBeGreaterThan(rockSpec.tsSec);
     expect(lacustrineSpec.resonance.highRiseG).toBeGreaterThan(
       rockSpec.resonance.highRiseG,
+    );
+  });
+
+  it("evalúa exposición poblacional y nivel de alerta estilo USGS PAGER (Jaiswal & Wald 2010)", () => {
+    const low = estimatePagerImpact([{ mmi: 4.1, popK: 200 }], 4.3);
+    expect(low.level).toBe("green");
+
+    const severe = estimatePagerImpact(
+      [
+        { mmi: 8.4, popK: 2400 },
+        { mmi: 7.2, popK: 1500 },
+      ],
+      8.6,
+    );
+    expect(severe.level).toBe("red");
+    expect(severe.exposedMmi6PopK).toBe(3900);
+    expect(severe.exposedMmi8PopK).toBe(2400);
+    expect(severe.bins).toHaveLength(6);
+  });
+
+  it("calcula deformación sísmica de Benioff (√E) y curva acumulada monótona", () => {
+    expect(benioffStrain(7) / benioffStrain(5)).toBeCloseTo(10 ** 1.5, 2);
+    const curve = buildBenioffCurve(syntheticCatalog, 20);
+    expect(curve.length).toBeGreaterThan(10);
+    expect(curve[curve.length - 1].cumStrainG).toBeGreaterThan(0);
+    expect(curve[curve.length - 1].cumStrainG).toBeCloseTo(
+      curve[curve.length - 1].steadyG,
+      1,
     );
   });
 });
