@@ -1,0 +1,86 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#050811" />
+      <stop offset="55%" stop-color="#0b1325" />
+      <stop offset="100%" stop-color="#070b14" />
+    </linearGradient>
+    <radialGradient id="epi" cx="78%" cy="48%" r="42%">
+      <stop offset="0%" stop-color="#ef4444" stop-opacity="0.32" />
+      <stop offset="45%" stop-color="#f97316" stop-opacity="0.14" />
+      <stop offset="75%" stop-color="#38bdf8" stop-opacity="0.06" />
+      <stop offset="100%" stop-color="#070b14" stop-opacity="0" />
+    </radialGradient>
+  </defs>
+
+  <rect width="1200" height="630" fill="url(#bg)" />
+  <rect width="1200" height="630" fill="url(#epi)" />
+
+  <!-- Grid lines -->
+  <g stroke="#1e293b" stroke-width="1" opacity="0.55">
+    <line x1="0" y1="120" x2="1200" y2="120" />
+    <line x1="0" y1="240" x2="1200" y2="240" />
+    <line x1="0" y1="360" x2="1200" y2="360" />
+    <line x1="0" y1="480" x2="1200" y2="480" />
+    <line x1="240" y1="0" x2="240" y2="630" />
+    <line x1="480" y1="0" x2="480" y2="630" />
+    <line x1="720" y1="0" x2="720" y2="630" />
+    <line x1="960" y1="0" x2="960" y2="630" />
+  </g>
+
+  <!-- Isoseismal rings -->
+  <g fill="none" stroke-dasharray="6 4">
+    <circle cx="936" cy="300" r="230" stroke="#22c55e" stroke-width="2" opacity="0.55" />
+    <circle cx="936" cy="300" r="165" stroke="#facc15" stroke-width="2" opacity="0.7" />
+    <circle cx="936" cy="300" r="105" stroke="#f97316" stroke-width="2.5" opacity="0.85" />
+    <circle cx="936" cy="300" r="52" stroke="#ef4444" stroke-width="3" />
+  </g>
+  <circle cx="936" cy="300" r="10" fill="#ef4444" />
+
+  <!-- Synthetic waveform trace across bottom -->
+  <path
+    d="M 60 545 L 180 545 L 195 536 L 210 554 L 225 530 L 240 558 L 255 542 L 290 545 L 310 500 L 325 585 L 340 480 L 355 595 L 372 495 L 390 580 L 410 515 L 430 568 L 455 528 L 480 558 L 510 536 L 545 552 L 590 542 L 660 545"
+    fill="none"
+    stroke="#38bdf8"
+    stroke-width="3"
+  />
+
+  <!-- Top badge -->
+  <rect x="64" y="54" width="380" height="36" rx="18" fill="#0f172a" stroke="#38bdf8" stroke-opacity="0.45" />
+  <text x="84" y="77" fill="#38bdf8" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="14" font-weight="bold">
+    OPEN SOURCE · MIT · 100% BROWSER-NATIVE
+  </text>
+
+  <!-- Title -->
+  <text x="64" y="162" fill="#f8fafc" font-family="Inter, system-ui, -apple-system, sans-serif" font-size="68" font-weight="800">
+    Sismos <tspan fill="#38bdf8">Global</tspan>
+  </text>
+  <text x="64" y="212" fill="#cbd5e1" font-family="Inter, system-ui, -apple-system, sans-serif" font-size="26" font-weight="500">
+    Computational Seismology, Probabilistic Forecasting &amp; DuckDB-WASM Analytics
+  </text>
+
+  <!-- Feature pills -->
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="15" font-weight="600">
+    <rect x="64" y="256" width="290" height="44" rx="10" fill="#101a2c" stroke="#1e293b" />
+    <text x="84" y="284" fill="#38bdf8">9 Seismic Networks (FDSN + SGC)</text>
+
+    <rect x="370" y="256" width="280" height="44" rx="10" fill="#101a2c" stroke="#1e293b" />
+    <text x="390" y="284" fill="#facc15">ETAS · Omori-Utsu · Weichert</text>
+
+    <rect x="64" y="314" width="290" height="44" rx="10" fill="#101a2c" stroke="#1e293b" />
+    <text x="84" y="342" fill="#fb923c">PSHA + Vs30 Site Amplification</text>
+
+    <rect x="370" y="314" width="280" height="44" rx="10" fill="#101a2c" stroke="#1e293b" />
+    <text x="390" y="342" fill="#4ade80">DuckDB-WASM SQL &amp; Parquet</text>
+
+    <rect x="64" y="372" width="290" height="44" rx="10" fill="#101a2c" stroke="#1e293b" />
+    <text x="84" y="400" fill="#f43f5e">2D WadatiBenioff Slab Profiles</text>
+
+    <rect x="370" y="372" width="280" height="44" rx="10" fill="#101a2c" stroke="#1e293b" />
+    <text x="390" y="400" fill="#c084fc">Web Workers · Offline PWA · ES/EN</text>
+  </g>
+
+  <text x="64" y="594" fill="#64748b" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="15">
+    github.com/Kromilla/sismos-global · React 19 · TypeScript · WebAssembly · Leaflet · Recharts
+  </text>
+</svg>

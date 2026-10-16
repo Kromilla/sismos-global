@@ -3,6 +3,7 @@ import { Card, Note, Stat } from "./ui";
 import { tntTons } from "../science/stats";
 import { fmtNum, magColor } from "../ui/format";
 import { mmiAtkinsonWald, mmiColor, mmiRoman } from "../science/intensity";
+import { localeFor, type Lang } from "../i18n/shell";
 
 const PLATES = [
   {
@@ -63,10 +64,32 @@ const MYTHS = [
   },
 ];
 
-export default function Learn() {
+const BIBTEX_ENTRY = `@software{sismos_global_2026,
+  author       = {Carlos},
+  title        = {Sismos Global: Browser-Native Computational Seismology, PSHA, ETAS Forecasting & DuckDB-WASM Analytics},
+  year         = {2026},
+  version      = {1.0.0},
+  license      = {MIT},
+  url          = {https://github.com/Kromilla/sismos-global}
+}`;
+
+export default function Learn({ lang = "es" }: { lang?: Lang }) {
+  const en = lang === "en";
+  const locale = localeFor(lang);
   const [sp, setSp] = useState(12);
   const [mag, setMag] = useState(6.5);
   const [dist, setDist] = useState(50);
+  const [copiedBib, setCopiedBib] = useState(false);
+
+  const copyBibtex = async () => {
+    try {
+      await navigator.clipboard.writeText(BIBTEX_ENTRY);
+      setCopiedBib(true);
+      window.setTimeout(() => setCopiedBib(false), 2000);
+    } catch {
+      /* ignore */
+    }
+  };
 
   // Regla clásica: distancia ≈ (ts − tp) × 8 km/s para distancias regionales.
   const distanceKm = sp * 8;
@@ -75,8 +98,16 @@ export default function Learn() {
     <div className="space-y-4">
       <div className="grid gap-4 lg:grid-cols-2">
         <Card
-          title="Por qué tiembla en Latinoamérica"
-          subtitle="El Cinturón de Fuego pasa por casa"
+          title={
+            en
+              ? "Why the Earth shakes in the Americas & Ring of Fire"
+              : "Por qué tiembla en Latinoamérica"
+          }
+          subtitle={
+            en
+              ? "Tectonic plate convergence and major active boundaries"
+              : "El Cinturón de Fuego pasa por casa"
+          }
         >
           <div className="space-y-2">
             {PLATES.map((p) => (
@@ -179,19 +210,27 @@ export default function Learn() {
         </label>
         <div className="mt-3 grid gap-3 sm:grid-cols-3">
           <Stat
-            label="Energía equivalente"
-            value={`${fmtNum(tntTons(mag) / 1000, 1)} kt`}
-            hint="Kilotones de TNT (Hiroshima ≈ 15 kt)"
+            label={en ? "Equivalent energy" : "Energía equivalente"}
+            value={`${fmtNum(tntTons(mag) / 1000, 1, locale)} kt`}
+            hint={
+              en
+                ? "Kilotons of TNT (Hiroshima ≈ 15 kt)"
+                : "Kilotones de TNT (Hiroshima ≈ 15 kt)"
+            }
             accent="#f43f5e"
           />
           <Stat
-            label="Equivale a"
-            value={`${fmtNum(10 ** (1.5 * (mag - 5)), 0)} sismos M5`}
-            hint="Cada punto de magnitud multiplica la energía por 32"
+            label={en ? "Equals" : "Equivale a"}
+            value={`${fmtNum(10 ** (1.5 * (mag - 5)), 0, locale)} ${en ? "M5 quakes" : "sismos M5"}`}
+            hint={
+              en
+                ? "Each magnitude step multiplies energy by 32"
+                : "Cada punto de magnitud multiplica la energía por 32"
+            }
           />
           <Stat
-            label="Ruptura típica"
-            value={`≈ ${fmtNum(10 ** (0.59 * mag - 2.44), 0)} km de falla`}
+            label={en ? "Typical rupture" : "Ruptura típica"}
+            value={`≈ ${fmtNum(10 ** (0.59 * mag - 2.44), 0, locale)} ${en ? "km fault" : "km de falla"}`}
             hint="Relación empírica de Wells & Coppersmith (1994)"
             accent="#facc15"
           />
@@ -322,10 +361,103 @@ export default function Learn() {
             Wald &amp; Worden (2012), con Atkinson &amp; Wald (2007) como
             alternativa, y conversión MMI–PGA de Worden et al. (2012). Ambas se
             contrastan dentro de la app contra la intensidad que el USGS midió
-            en cada sismo.
+            en cada sismo, incluyendo amplificación por sitio (Vs30 NEHRP B–E).
           </li>
         </ul>
       </Card>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card
+          title={
+            en
+              ? "Open-Source Engineering Architecture"
+              : "Arquitectura de Ingeniería (Open Source)"
+          }
+          subtitle={
+            en
+              ? "100% browser-native, zero-backend computational platform"
+              : "Plataforma computacional 100% en el navegador y sin costos de servidor"
+          }
+        >
+          <ul className="space-y-2 text-xs leading-relaxed text-slate-400">
+            <li>
+              <b className="text-sky-300">Multi-agency FDSN Streaming:</b>{" "}
+              {en
+                ? "Parallel ingestion and spatio-temporal deduplication across 8 FDSN agencies (USGS, EMSC, GeoNet, INGV, GFZ, IPGP, GA, SSN) + Colombia SGC (since 1610), supporting GeoJSON, SeismicPortal JSON, and pipe-delimited text."
+                : "Ingesta paralela y deduplicación espacio-temporal entre 8 agencias FDSN (USGS, EMSC, GeoNet, INGV, GFZ, IPGP, GA, SSN) + SGC desde 1610, soportando GeoJSON, JSON y texto delimitado por tuberías."}
+            </li>
+            <li>
+              <b className="text-sky-300">Web Workers Off-Thread Science:</b>{" "}
+              {en
+                ? "Point-source Cornell–McGuire PSHA and 49-zone ETAS/Omori-Utsu/Weichert forecasting run in dedicated Web Workers to keep the UI at 60 FPS."
+                : "El motor PSHA Cornell–McGuire y el pronóstico ETAS/Omori-Utsu/Weichert de las 49 zonas corren en Web Workers dedicados sin bloquear el hilo principal."}
+            </li>
+            <li>
+              <b className="text-sky-300">In-Browser OLAP (DuckDB-WASM):</b>{" "}
+              {en
+                ? "Full star schema (fact_sismo + 4 dimensions + 3 analytical views) with SQL execution and native Apache Parquet & CSV export."
+                : "Esquema estrella completo (fact_sismo + 4 dimensiones + 3 vistas analíticas) con consola SQL y exportación nativa a Apache Parquet y CSV."}
+            </li>
+            <li>
+              <b className="text-sky-300">Offline-First PWA &amp; IndexedDB:</b>{" "}
+              {en
+                ? "Two-tier IndexedDB catalog cache + Service Worker caching application bundles and WebAssembly binaries."
+                : "Caché de catálogos en IndexedDB + Service Worker con soporte offline para bundles y binarios WebAssembly."}
+            </li>
+          </ul>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <a
+              href="https://github.com/Kromilla/sismos-global"
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-300 transition hover:bg-amber-500/20"
+            >
+              ★ {en ? "Star on GitHub" : "Dar estrella en GitHub"} ↗
+            </a>
+            <a
+              href="https://github.com/Kromilla/sismos-global/issues"
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-ink-700 bg-ink-800 px-3 py-1.5 text-xs text-slate-300 transition hover:text-white"
+            >
+              {en ? "Contribute / Report issue" : "Contribuir / Reportar issue"}{" "}
+              ↗
+            </a>
+          </div>
+        </Card>
+
+        <Card
+          title={
+            en
+              ? "How to Cite (Academic & Portfolio)"
+              : "Cómo citar este proyecto (Académico / CV)"
+          }
+          subtitle={
+            en
+              ? "MIT License · Ready for BibTeX & GitHub CITATION.cff"
+              : "Licencia MIT · Incluye CITATION.cff para citación académica en GitHub"
+          }
+          right={
+            <button
+              type="button"
+              onClick={() => void copyBibtex()}
+              className="rounded-lg border border-sky-500/40 bg-sky-500/10 px-2.5 py-1 text-xs font-medium text-sky-300 transition hover:bg-sky-500/20"
+            >
+              {copiedBib
+                ? en
+                  ? "Copied!"
+                  : "¡Copiado!"
+                : en
+                  ? "Copy BibTeX"
+                  : "Copiar BibTeX"}
+            </button>
+          }
+        >
+          <pre className="overflow-x-auto rounded-xl border border-ink-800 bg-ink-950/70 p-3 font-mono text-[11px] leading-relaxed text-slate-300">
+            {BIBTEX_ENTRY}
+          </pre>
+        </Card>
+      </div>
     </div>
   );
 }

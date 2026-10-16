@@ -82,3 +82,69 @@ export function fmtEnergy(mag: number): string {
     return `${(t / 1000).toLocaleString("es-CO", { maximumFractionDigits: 1 })} kt TNT`;
   return `${(t / 1e6).toLocaleString("es-CO", { maximumFractionDigits: 1 })} Mt TNT`;
 }
+
+/**
+ * Deformación sísmica de Benioff (Benioff, 1951): proporcional a la raíz
+ * cuadrada de la energía sísmica radiada √E = 10^(0.75·M + 2.4) [J^(1/2)].
+ */
+export function benioffStrain(mag: number): number {
+  return 10 ** (0.75 * mag + 2.4);
+}
+
+export interface BenioffPoint {
+  time: number;
+  label: string;
+  cumStrainG: number;
+  steadyG: number;
+  maxMag: number;
+}
+
+/**
+ * Construye la curva acumulada de liberación de deformación de Benioff (∑√E,
+ * expresada en 10^7 J^(1/2)) junto con la recta de tasa estacionaria media.
+ */
+export function buildBenioffCurve(
+  quakes: ReadonlyArray<{ time: number; mag: number }>,
+  bins = 60,
+): BenioffPoint[] {
+  if (quakes.length < 2) return [];
+  const sorted = [...quakes].sort((a, b) => a.time - b.time);
+  const tMin = sorted[0].time;
+  const tMax = sorted[sorted.length - 1].time;
+  const span = Math.max(1, tMax - tMin);
+  const nBins = Math.max(10, Math.min(bins, sorted.length));
+  const step = span / nBins;
+  const multiYear = span > 2 * YEAR_DAYS * DAY_MS;
+
+  let totalStrain = 0;
+  for (const q of sorted) totalStrain += benioffStrain(q.mag);
+  const totalG = totalStrain / 1e7;
+
+  const out: BenioffPoint[] = [];
+  let idx = 0;
+  let running = 0;
+
+  for (let b = 0; b <= nBins; b++) {
+    const tEdge = b === nBins ? tMax : Math.round(tMin + b * step);
+    let binMaxMag = 0;
+    while (idx < sorted.length && sorted[idx].time <= tEdge) {
+      running += benioffStrain(sorted[idx].mag);
+      if (sorted[idx].mag > binMaxMag) binMaxMag = sorted[idx].mag;
+      idx++;
+    }
+    const d = new Date(tEdge);
+    const label = multiYear
+      ? String(d.getUTCFullYear())
+      : d.toISOString().slice(0, 10);
+    const frac = (tEdge - tMin) / span;
+    out.push({
+      time: tEdge,
+      label,
+      cumStrainG: Number((running / 1e7).toFixed(2)),
+      steadyG: Number((totalG * frac).toFixed(2)),
+      maxMag: binMaxMag,
+    });
+  }
+
+  return out;
+}

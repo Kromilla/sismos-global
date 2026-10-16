@@ -314,6 +314,22 @@ export async function exportCsv(sql: string): Promise<string> {
   ].join("\n");
 }
 
+/** Exporta el resultado de una consulta SQL como archivo binario Apache Parquet. */
+export async function exportParquet(sql: string): Promise<Uint8Array> {
+  const db = await getDb();
+  const conn = await db.connect();
+  const cleanSql = sql.trim().replace(/;+\s*$/, "");
+  const fileName = "consulta_sismos.parquet";
+  try {
+    await conn.query(`COPY (${cleanSql}) TO '${fileName}' (FORMAT PARQUET)`);
+    const buf = await db.copyFileToBuffer(fileName);
+    await db.dropFile(fileName);
+    return buf;
+  } finally {
+    await conn.close();
+  }
+}
+
 export const SAMPLE_QUERIES: { title: string; sql: string }[] = [
   {
     title: "Resumen por zona",

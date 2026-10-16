@@ -19,30 +19,71 @@ export function depthColor(depthKm: number): string {
   return "#60a5fa";
 }
 
-export function depthLabel(depthKm: number): string {
+export function depthLabel(depthKm: number, lang: "es" | "en" = "es"): string {
+  if (lang === "en") {
+    if (depthKm < 70) return "shallow";
+    if (depthKm < 300) return "intermediate";
+    return "deep";
+  }
   if (depthKm < 70) return "superficial";
   if (depthKm < 300) return "intermedia";
   return "profunda";
 }
 
-const dtf = new Intl.DateTimeFormat("es-CO", {
-  dateStyle: "medium",
-  timeStyle: "short",
-});
-const dtfShort = new Intl.DateTimeFormat("es-CO", { dateStyle: "short" });
+const dtfCache = new Map<string, Intl.DateTimeFormat>();
+const dtfShortCache = new Map<string, Intl.DateTimeFormat>();
 
-export function fmtDateTime(ms: number): string {
-  return dtf.format(new Date(ms));
+function dateTimeFmt(locale = "es-CO"): Intl.DateTimeFormat {
+  let f = dtfCache.get(locale);
+  if (!f) {
+    f = new Intl.DateTimeFormat(locale, {
+      dateStyle: "medium",
+      timeStyle: "short",
+    });
+    dtfCache.set(locale, f);
+  }
+  return f;
 }
 
-export function fmtDate(ms: number): string {
-  return dtfShort.format(new Date(ms));
+function dateFmt(locale = "es-CO"): Intl.DateTimeFormat {
+  let f = dtfShortCache.get(locale);
+  if (!f) {
+    f = new Intl.DateTimeFormat(locale, { dateStyle: "short" });
+    dtfShortCache.set(locale, f);
+  }
+  return f;
 }
 
-/** "hace 3 h", "hace 2 d". */
-export function fmtAgo(ms: number, now = Date.now()): string {
+export function fmtDateTime(ms: number, locale = "es-CO"): string {
+  return dateTimeFmt(locale).format(new Date(ms));
+}
+
+export function fmtDate(ms: number, locale = "es-CO"): string {
+  return dateFmt(locale).format(new Date(ms));
+}
+
+/** "hace 3 h" / "3 h ago". */
+export function fmtAgo(
+  ms: number,
+  now = Date.now(),
+  lang: "es" | "en" = "es",
+): string {
   const diff = Math.max(now - ms, 0);
   const min = diff / 60000;
+  if (lang === "en") {
+    if (min < 1) return "just now";
+    if (min < 60) return `${Math.round(min)} min ago`;
+    const h = min / 60;
+    if (h < 24) return `${Math.round(h)} h ago`;
+    const d = diff / DAY_MS;
+    if (d < 30) return `${Math.round(d)} d ago`;
+    const mo = d / 30.44;
+    if (mo < 12) {
+      const n = Math.round(mo);
+      return n === 1 ? "1 month ago" : `${n} months ago`;
+    }
+    return `${(d / 365.25).toFixed(1)} yr ago`;
+  }
   if (min < 1) return "ahora mismo";
   if (min < 60) return `hace ${Math.round(min)} min`;
   const h = min / 60;
@@ -57,10 +98,10 @@ export function fmtAgo(ms: number, now = Date.now()): string {
   return `hace ${(d / 365.25).toFixed(1)} años`;
 }
 
-export function fmtNum(x: number, digits = 2): string {
+export function fmtNum(x: number, digits = 2, locale = "es-CO"): string {
   if (!Number.isFinite(x)) return "—";
   if (x !== 0 && Math.abs(x) < 0.001) return x.toExponential(1);
-  return x.toLocaleString("es-CO", { maximumFractionDigits: digits });
+  return x.toLocaleString(locale, { maximumFractionDigits: digits });
 }
 
 export function fmtPct(p: number): string {
@@ -80,8 +121,17 @@ export function probColor(p: number): string {
   return "#dc2626";
 }
 
-export function fmtYears(y: number): string {
+export function fmtYears(y: number, lang: "es" | "en" = "es"): string {
   if (!Number.isFinite(y)) return "—";
+  if (lang === "en") {
+    if (y >= 1000) return `${Math.round(y / 100) / 10}k yr`;
+    if (y >= 1) return y < 2 ? "1 yr" : `${Math.round(y)} yr`;
+    const days = y * 365.25;
+    if (days < 1) return `${Math.round(days * 24)} h`;
+    if (days < 45) return `${Math.round(days)} days`;
+    const months = Math.round(y * 12);
+    return months <= 1 ? "1 mo" : `${months} mo`;
+  }
   if (y >= 1000) return `${Math.round(y / 100) / 10} mil años`;
   if (y >= 1) return y < 2 ? "1 año" : `${Math.round(y)} años`;
   const days = y * 365.25;

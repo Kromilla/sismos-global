@@ -4,12 +4,79 @@
     <meta charset="UTF-8" />
     <link
       rel="icon"
-      href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 100 100%27%3E%3Ctext y=%27.9em%27 font-size=%2790%27%3E%F0%9F%8C%8E%3C/text%3E%3C/svg%3E"
+      type="image/svg+xml"
+      href="./icon.svg"
     />
+    <link rel="manifest" href="./manifest.webmanifest" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Catálogo sísmico mundial en el navegador: mapa en vivo, Gutenberg–Richter, ETAS, PSHA e intensidad MMI. Datos USGS, EMSC, GeoNet, INGV, GFZ, SSN, SGC y más redes FDSN. Sin servidor ni suscripción."
+    />
+    <meta
+      name="keywords"
+      content="sismos, terremotos, earthquake catalog, PSHA, ETAS, Gutenberg-Richter, USGS, EMSC, amenaza sísmica, pronóstico probabilístico, DuckDB"
+    />
+    <meta name="theme-color" content="#070b14" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="application-name" content="Sismos Global" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta
+      name="apple-mobile-web-app-status-bar-style"
+      content="black-translucent"
+    />
+
+    <!-- Open Graph / Twitter: al desplegar, añade og:url e og:image absolutos -->
+    <meta property="og:type" content="website" />
+    <meta property="og:locale" content="es_CO" />
+    <meta property="og:locale:alternate" content="en_US" />
+    <meta
+      property="og:title"
+      content="Sismos Global — catálogo, análisis y pronóstico sísmico"
+    />
+    <meta
+      property="og:description"
+      content="Herramienta educativa y analítica 100% en el navegador: mapa mundial, estadística del catálogo, pronóstico ETAS/Poisson y PSHA por ciudad. MIT, sin backend."
+    />
+    <meta property="og:site_name" content="Sismos Global" />
+    <meta property="og:image" content="./og-banner.svg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:image" content="./og-banner.svg" />
+    <meta
+      name="twitter:title"
+      content="Sismos Global — catálogo y pronóstico sísmico mundial"
+    />
+    <meta
+      name="twitter:description"
+      content="Catálogo FDSN multi-red, modelos Gutenberg–Richter / ETAS / PSHA y almacén DuckDB-WASM. Corre en tu navegador."
+    />
+
     <title>
       Sismos Global — catálogo, análisis y pronóstico sísmico mundial
     </title>
+
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "name": "Sismos Global",
+        "alternateName": "Quakes Global",
+        "applicationCategory": "EducationalApplication",
+        "operatingSystem": "Any",
+        "browserRequirements": "Requires JavaScript and a modern browser",
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "USD"
+        },
+        "description": "Browser-only global earthquake catalog with Gutenberg–Richter analysis, ETAS/Poisson forecasts, city PSHA, and an in-browser DuckDB warehouse. Multi-network FDSN + Colombia SGC since 1610.",
+        "inLanguage": ["es", "en"],
+        "isAccessibleForFree": true,
+        "license": "https://opensource.org/licenses/MIT"
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>

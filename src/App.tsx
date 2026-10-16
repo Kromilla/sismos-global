@@ -1,5 +1,13 @@
-import { Suspense, lazy, useMemo, useState } from "react";
+import {
+  Suspense,
+  lazy,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { CatalogQuery, CatalogSource, Quake } from "./types";
+import { FAMOUS_QUAKES } from "./data/famousQuakes";
 import {
   ALL_REGIONS,
   REGIONS,
@@ -8,19 +16,45 @@ import {
   inBbox,
 } from "./data/regions";
 import { useCatalog } from "./hooks/useCatalog";
-import MapView from "./components/MapView";
+import { useShareableState } from "./hooks/useShareableState";
+import { useGeolocation } from "./hooks/useGeolocation";
+import { playAlertChime, useAlerts } from "./hooks/useAlerts";
+import MapView, { type Ring } from "./components/MapView";
 import EventsTable from "./components/EventsTable";
 import QuakeIntensityPanel from "./components/QuakeIntensityPanel";
 import { Badge, Note, Spinner, buttonClass, inputClass } from "./components/ui";
 import { DAY_MS } from "./science/stats";
 import {
+  DEFAULT_IPE,
+  IPE_MODELS,
+  mmiColor,
+  mmiLevel,
+  mmiRoman,
+  radiusForMmi,
+} from "./science/intensity";
+import {
   MAG_CLASSES,
   fmtAgo,
+  fmtDateTime,
   fmtNum,
   magClass,
   magClassLabel,
   magColor,
 } from "./ui/format";
+import {
+  SHELL,
+  detectLang,
+  localeFor,
+  persistLang,
+  type Lang,
+} from "./i18n/shell";
+import {
+  downloadTextFile,
+  parseUserCatalog,
+  quakesToCsv,
+  quakesToGeoJson,
+  quakesToQuakeMl,
+} from "./utils/exportCatalog";
 
 const Analytics = lazy(() => import("./components/Analytics"));
 const Forecast = lazy(() => import("./components/Forecast"));
@@ -37,23 +71,37 @@ type Tab =
   | "almacen"
   | "aprender";
 
-const TABS: { id: Tab; label: string; hint: string }[] = [
-  { id: "mapa", label: "Mapa", hint: "Sismicidad en tiempo casi real" },
-  { id: "eventos", label: "Eventos", hint: "Catálogo tabulado" },
-  { id: "analisis", label: "Análisis", hint: "Estadística del catálogo" },
-  {
-    id: "pronostico",
-    label: "Pronóstico",
-    hint: "Probabilidades ETAS y Poisson",
-  },
-  {
-    id: "intensidad",
-    label: "Intensidad",
-    hint: "Amenaza y escenarios de daño",
-  },
-  { id: "almacen", label: "Almacén", hint: "Data warehouse SQL" },
-  { id: "aprender", label: "Aprender", hint: "Cómo funciona todo esto" },
+const TABS_ORDER: Tab[] = [
+  "mapa",
+  "eventos",
+  "analisis",
+  "pronostico",
+  "intensidad",
+  "almacen",
+  "aprender",
 ];
+
+const TAB_IDS = new Set<Tab>(TABS_ORDER);
+
+const CATALOG_SOURCES = new Set<CatalogSource>([
+  "USGS",
+  "SGC",
+  "ambos",
+  "EMSC",
+  "GEONET",
+  "GA",
+  "INGV",
+  "GFZ",
+  "IPGP",
+  "SSN",
+  "USGS+EMSC",
+  "USGS+GEONET",
+  "USGS+GA",
+  "USGS+INGV",
+  "USGS+GFZ",
+  "USGS+IPGP",
+  "USGS+SSN",
+]);
 
 // 1610 y 1900 solo aportan datos con el catálogo del SGC activado.
 const HIST_START_YEARS = [1610, 1900, 1950, 1970, 1990, 2000, 2010];
@@ -66,19 +114,28 @@ const HIST_START_YEARS = [1610, 1900, 1950, 1970, 1990, 2000, 2010];
  */
 const MIN_MAG_MUNDO = 5;
 const MIN_MAG_ZONA = 4.5;
+const AUTO_REFRESH_MS = 2 * 60 * 1000;
 
 export default function App() {
-  // Instante fijo del arranque: evita rehacer la consulta en cada render.
-  const [now] = useState(() => Date.now());
+  // Instante de referencia: se actualiza cuando el modo en vivo está activo.
+  const [now, setNow] = useState(() => Date.now());
+  const [autoRefresh, setAutoRefresh] = useState(true);
+  const [lang, setLang] = useState<Lang>(() => detectLang());
+  const t = SHELL[lang];
+  const locale = localeFor(lang);
 
   const [tab, setTab] = useState<Tab>("mapa");
   const [source, setSource] = useState<"reciente" | "historico">("reciente");
   const [minMag, setMinMag] = useState(2.5);
   const [maxDepth, setMaxDepth] = useState(800);
   const [regionId, setRegionId] = useState<string>("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [onlyTsunami, setOnlyTsunami] = useState(false);
+  const [onlyFelt, setOnlyFelt] = useState(false);
   const [colorBy, setColorBy] = useState<"mag" | "depth">("mag");
   const [showHeat, setShowHeat] = useState(false);
   const [showRegions, setShowRegions] = useState(false);
+  const [showPlates, setShowPlates] = useState(false);
   const [histStartYear, setHistStartYear] = useState(1990);
   const [histMinMag, setHistMinMag] = useState(MIN_MAG_MUNDO);
   const [catalogSource, setCatalogSource] = useState<CatalogSource>("USGS");
@@ -90,6 +147,165 @@ export default function App() {
   const [clasesOcultas, setClasesOcultas] = useState<number[]>([]);
   const [decada, setDecada] = useState<number | null>(null);
   const [intensityQuake, setIntensityQuake] = useState<Quake | null>(null);
+  const [ringQuake, setRingQuake] = useState<Quake | null>(null);
+  const [showAlertsMenu, setShowAlertsMenu] = useState(false);
+  const [cmdOpen, setCmdOpen] = useState(false);
+  const [cmdQuery, setCmdQuery] = useState("");
+  const [tlPlaying, setTlPlaying] = useState(false);
+  const [tlProgress, setTlProgress] = useState(100);
+  const [tlSpeed, setTlSpeed] = useState<1 | 5 | 20>(5);
+  const [customCatalog, setCustomCatalog] = useState<{
+    name: string;
+    quakes: Quake[];
+  } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [shareStatus, setShareStatus] = useState<"idle" | "ok" | "fail">(
+    "idle",
+  );
+
+  const geo = useGeolocation();
+
+  useEffect(() => {
+    persistLang(lang);
+    document.title =
+      lang === "en"
+        ? "Quakes Global — catalog, analysis and seismic forecast"
+        : "Sismos Global — catálogo, análisis y pronóstico sísmico mundial";
+  }, [lang]);
+
+  useEffect(() => {
+    if (!autoRefresh) return;
+    const id = window.setInterval(() => setNow(Date.now()), AUTO_REFRESH_MS);
+    return () => window.clearInterval(id);
+  }, [autoRefresh]);
+
+  useEffect(() => {
+    if (!tlPlaying) return;
+    const id = window.setInterval(() => {
+      setTlProgress((prev) => {
+        const next = prev + 0.4 * tlSpeed;
+        if (next >= 100) {
+          setTlPlaying(false);
+          return 100;
+        }
+        return next;
+      });
+    }, 80);
+    return () => window.clearInterval(id);
+  }, [tlPlaying, tlSpeed]);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setCmdOpen((v) => !v);
+        setCmdQuery("");
+        return;
+      }
+      if (e.key === "Escape" && cmdOpen) {
+        setCmdOpen(false);
+        return;
+      }
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (
+        tag === "INPUT" ||
+        tag === "TEXTAREA" ||
+        tag === "SELECT" ||
+        e.metaKey ||
+        e.ctrlKey ||
+        e.altKey
+      ) {
+        return;
+      }
+      const num = Number(e.key);
+      if (num >= 1 && num <= 7) {
+        setTab(TABS_ORDER[num - 1]);
+      } else if (e.key.toLowerCase() === "p") {
+        setShowPlates((v) => !v);
+      } else if (e.key.toLowerCase() === "l") {
+        setLang((prev) => (prev === "es" ? "en" : "es"));
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [cmdOpen]);
+
+  const applyFromUrl = (params: URLSearchParams) => {
+    const langParam = params.get("lang");
+    if (langParam === "en" || langParam === "es") setLang(langParam);
+
+    const tabParam = params.get("tab");
+    if (tabParam && TAB_IDS.has(tabParam as Tab)) setTab(tabParam as Tab);
+
+    const regionParam = params.get("region") ?? "";
+    if (!regionParam || ALL_REGIONS.some((r) => r.id === regionParam)) {
+      setRegionId(regionParam);
+      setHistMinMag(regionParam ? MIN_MAG_ZONA : MIN_MAG_MUNDO);
+    }
+
+    const qParam = params.get("q");
+    if (qParam) setSearchQuery(qParam);
+
+    const src = params.get("source");
+    if (src === "reciente" || src === "historico") setSource(src);
+
+    const cat = params.get("catalog");
+    if (cat && CATALOG_SOURCES.has(cat as CatalogSource)) {
+      setCatalogSource(cat as CatalogSource);
+    }
+
+    const year = Number(params.get("from"));
+    if (HIST_START_YEARS.includes(year)) setHistStartYear(year);
+
+    const mag = Number(params.get("mag"));
+    if (Number.isFinite(mag) && mag >= 2 && mag <= 7) setMinMag(mag);
+
+    const color = params.get("color");
+    if (color === "mag" || color === "depth") setColorBy(color);
+
+    if (params.get("heat") === "1") setShowHeat(true);
+    if (params.get("zones") === "1") setShowRegions(true);
+    if (params.get("plates") === "1") setShowPlates(true);
+    if (params.get("tsunami") === "1") setOnlyTsunami(true);
+    if (params.get("felt") === "1") setOnlyFelt(true);
+  };
+
+  const shareState = useMemo(
+    () => ({
+      lang,
+      tab,
+      region: regionId,
+      q: searchQuery.trim(),
+      source,
+      catalog: catalogSource,
+      from: String(histStartYear),
+      mag: minMag === 2.5 ? "" : String(minMag),
+      color: colorBy === "mag" ? "" : colorBy,
+      heat: showHeat ? "1" : "",
+      zones: showRegions ? "1" : "",
+      plates: showPlates ? "1" : "",
+      tsunami: onlyTsunami ? "1" : "",
+      felt: onlyFelt ? "1" : "",
+    }),
+    [
+      lang,
+      tab,
+      regionId,
+      searchQuery,
+      source,
+      catalogSource,
+      histStartYear,
+      minMag,
+      colorBy,
+      showHeat,
+      showRegions,
+      showPlates,
+      onlyTsunami,
+      onlyFelt,
+    ],
+  );
+
+  const { copyShareUrl } = useShareableState(shareState, applyFromUrl);
 
   const region = useMemo(
     () => ALL_REGIONS.find((r) => r.id === regionId) ?? null,
@@ -125,34 +341,87 @@ export default function App() {
 
   const live = useCatalog(liveQuery, 10 * 60 * 1000, catalogSource);
   const hist = useCatalog(histQuery, 24 * 60 * 60 * 1000, catalogSource);
+  const alerts = useAlerts(live.quakes, lang);
 
   const needsHistory = tab === "analisis" || needsWorld;
   const active = needsHistory ? hist : source === "reciente" ? live : hist;
+  const baseQuakes = customCatalog ? customCatalog.quakes : active.quakes;
+  const worldQuakes = customCatalog ? customCatalog.quakes : hist.quakes;
 
-  const filtered = useMemo(
-    () =>
-      active.quakes.filter((q) => {
-        if (q.mag < minMag || q.depth > maxDepth) return false;
-        if (region && !inBbox(q.lat, q.lon, region.bbox)) return false;
-        if (clasesOcultas.includes(magClass(q.mag))) return false;
-        if (decada !== null) {
-          const año = new Date(q.time).getUTCFullYear();
-          if (año < decada || año >= decada + 10) return false;
-        }
-        return true;
-      }),
-    [active.quakes, minMag, maxDepth, region, clasesOcultas, decada],
-  );
+  const filtered = useMemo(() => {
+    const needle = searchQuery.trim().toLowerCase();
+    return baseQuakes.filter((q) => {
+      if (q.mag < minMag || q.depth > maxDepth) return false;
+      if (region && !inBbox(q.lat, q.lon, region.bbox)) return false;
+      if (onlyTsunami && !q.tsunami) return false;
+      if (onlyFelt && q.mmi == null && q.cdi == null && (q.felt ?? 0) <= 0)
+        return false;
+      if (needle) {
+        const hay = `${q.place} ${q.source ?? ""} ${q.id}`.toLowerCase();
+        if (!hay.includes(needle)) return false;
+      }
+      if (clasesOcultas.includes(magClass(q.mag))) return false;
+      if (decada !== null) {
+        const año = new Date(q.time).getUTCFullYear();
+        if (año < decada || año >= decada + 10) return false;
+      }
+      return true;
+    });
+  }, [
+    baseQuakes,
+    minMag,
+    maxDepth,
+    region,
+    onlyTsunami,
+    onlyFelt,
+    searchQuery,
+    clasesOcultas,
+    decada,
+  ]);
+
+  const timeBounds = useMemo(() => {
+    if (filtered.length === 0) return { minT: now - DAY_MS, maxT: now };
+    let minT = Infinity;
+    let maxT = -Infinity;
+    for (const q of filtered) {
+      if (q.time < minT) minT = q.time;
+      if (q.time > maxT) maxT = q.time;
+    }
+    return { minT, maxT };
+  }, [filtered, now]);
+
+  const tlCutoff =
+    timeBounds.minT +
+    ((timeBounds.maxT - timeBounds.minT) * Math.min(100, tlProgress)) / 100;
+
+  const mapQuakes = useMemo(() => {
+    if (tlProgress >= 99.9 && !tlPlaying) return filtered;
+    return filtered.filter((q) => q.time <= tlCutoff);
+  }, [filtered, tlProgress, tlPlaying, tlCutoff]);
+
+  const mapRings = useMemo<Ring[]>(() => {
+    if (!ringQuake) return [];
+    const mmiFn = IPE_MODELS[DEFAULT_IPE].mmi;
+    return [8, 7, 6, 5, 4]
+      .map((target) => ({
+        lat: ringQuake.lat,
+        lon: ringQuake.lon,
+        radiusKm: radiusForMmi(ringQuake.mag, target, ringQuake.depth, mmiFn),
+        color: mmiColor(target),
+        label: `MMI ${mmiRoman(target)} — ${mmiLevel(target).label}`,
+      }))
+      .filter((r) => r.radiusKm > 2);
+  }, [ringQuake]);
 
   /** Décadas con eventos en el catálogo actual, de la más reciente a la más antigua. */
   const decadas = useMemo(() => {
     const cuenta = new Map<number, number>();
-    for (const q of active.quakes) {
+    for (const q of baseQuakes) {
       const d = Math.floor(new Date(q.time).getUTCFullYear() / 10) * 10;
       cuenta.set(d, (cuenta.get(d) ?? 0) + 1);
     }
     return [...cuenta.entries()].sort((x, y) => y[0] - x[0]);
-  }, [active.quakes]);
+  }, [baseQuakes]);
 
   const strongest = useMemo(
     () =>
@@ -167,6 +436,21 @@ export default function App() {
   const selectRegion = (id: string) => {
     setRegionId(id);
     setHistMinMag(id ? MIN_MAG_ZONA : MIN_MAG_MUNDO);
+    if (!id) {
+      setFocus({ lat: 15, lon: 0, zoom: 2 });
+      return;
+    }
+    const r = ALL_REGIONS.find((x) => x.id === id);
+    if (r) {
+      const centerLat = (r.bbox.minLat + r.bbox.maxLat) / 2;
+      const centerLon = (r.bbox.minLon + r.bbox.maxLon) / 2;
+      const span = Math.max(
+        r.bbox.maxLat - r.bbox.minLat,
+        r.bbox.maxLon - r.bbox.minLon,
+      );
+      const zoom = span > 40 ? 4 : span > 15 ? 5 : 6;
+      setFocus({ lat: centerLat, lon: centerLon, zoom });
+    }
   };
 
   const focusOn = (q: Quake) => {
@@ -174,69 +458,327 @@ export default function App() {
     setTab("mapa");
   };
 
+  const showRingsOnMap = (q: Quake) => {
+    setRingQuake(q);
+    setFocus({ lat: q.lat, lon: q.lon, zoom: 6 });
+    setTab("mapa");
+  };
+
+  const onNearMe = () => {
+    if (geo.coords) {
+      setFocus({ lat: geo.coords.lat, lon: geo.coords.lon, zoom: 6 });
+      setTab("mapa");
+    } else {
+      geo.request();
+    }
+  };
+
+  const onExportCsv = () => {
+    downloadTextFile(
+      `sismos-${source}-${filtered.length}.csv`,
+      quakesToCsv(filtered),
+      "text/csv;charset=utf-8",
+    );
+  };
+
+  const onExportGeoJson = () => {
+    downloadTextFile(
+      `sismos-${source}-${filtered.length}.geojson`,
+      quakesToGeoJson(filtered),
+      "application/geo+json;charset=utf-8",
+    );
+  };
+
+  const onExportQuakeMl = () => {
+    downloadTextFile(
+      `sismos-${source}-${filtered.length}.xml`,
+      quakesToQuakeMl(filtered),
+      "application/xml;charset=utf-8",
+    );
+  };
+
+  const onImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const parsed = parseUserCatalog(text);
+      if (parsed.length > 0) {
+        setCustomCatalog({ name: file.name, quakes: parsed });
+      }
+    } catch {
+      // Archivo inválido
+    }
+  };
+
+  const simulateFamousQuake = (q: Quake) => {
+    setRingQuake(q);
+    setIntensityQuake(q);
+    setFocus({ lat: q.lat, lon: q.lon, zoom: 6 });
+    setTab("mapa");
+  };
+
+  const onShare = async () => {
+    const ok = await copyShareUrl();
+    setShareStatus(ok ? "ok" : "fail");
+    window.setTimeout(() => setShareStatus("idle"), 2000);
+  };
+
+  const nl = (n: number) => n.toLocaleString(locale);
+
   return (
     <div className="mx-auto flex min-h-full max-w-[1400px] flex-col gap-4 px-4 py-5">
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-xl font-semibold tracking-tight text-slate-100">
-            Sismos <span className="text-sky-400">Global</span>
+            {t.title} <span className="text-sky-400">Global</span>
           </h1>
-          <p className="mt-0.5 text-xs text-slate-500">
-            Catálogo mundial · USGS, EMSC, GeoNet, Geoscience Australia, INGV y
-            SGC
-          </p>
+          <p className="mt-0.5 text-xs text-slate-500">{t.subtitle}</p>
         </div>
         <div className="flex flex-wrap items-center gap-4 text-xs">
           {latest && (
-            <div>
-              <div className="text-[11px] uppercase tracking-wider text-slate-500">
-                Último evento
+            <button
+              type="button"
+              onClick={() => focusOn(latest)}
+              className="group text-left transition"
+              title={latest.place}
+            >
+              <div className="text-[11px] uppercase tracking-wider text-slate-500 group-hover:text-sky-400">
+                {t.lastEvent}
               </div>
               <div className="mt-0.5 flex items-center gap-2">
                 <Badge color={magColor(latest.mag)}>
                   {latest.mag.toFixed(1)}
                 </Badge>
-                <span className="max-w-[220px] truncate text-slate-300">
+                <span className="max-w-[220px] truncate text-slate-300 group-hover:text-white">
                   {latest.place}
                 </span>
-                <span className="text-slate-600">{fmtAgo(latest.time)}</span>
+                <span className="text-slate-600">
+                  {fmtAgo(latest.time, now, lang)}
+                </span>
               </div>
-            </div>
+            </button>
           )}
           {strongest && (
-            <div>
-              <div className="text-[11px] uppercase tracking-wider text-slate-500">
-                Mayor en 30 días
+            <button
+              type="button"
+              onClick={() => focusOn(strongest)}
+              className="group text-left transition"
+              title={strongest.place}
+            >
+              <div className="text-[11px] uppercase tracking-wider text-slate-500 group-hover:text-sky-400">
+                {t.strongest30d}
               </div>
               <div className="mt-0.5 flex items-center gap-2">
                 <Badge color={magColor(strongest.mag)}>
                   {strongest.mag.toFixed(1)}
                 </Badge>
-                <span className="max-w-[200px] truncate text-slate-300">
+                <span className="max-w-[200px] truncate text-slate-300 group-hover:text-white">
                   {strongest.place}
                 </span>
               </div>
-            </div>
+            </button>
           )}
-          <button className={buttonClass} onClick={() => active.reload(true)}>
-            Actualizar
+          <button
+            type="button"
+            onClick={() => setAutoRefresh((v) => !v)}
+            title={t.autoRefreshHint}
+            className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition ${
+              autoRefresh
+                ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
+                : "border-ink-700 bg-ink-800 text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            <span
+              className={`h-2 w-2 rounded-full ${
+                autoRefresh
+                  ? "animate-pulse bg-emerald-400"
+                  : "bg-slate-600"
+              }`}
+            />
+            {t.autoRefresh}
           </button>
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setShowAlertsMenu((v) => !v)}
+              className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition ${
+                alerts.settings.enabled
+                  ? "border-amber-500/40 bg-amber-500/10 text-amber-300"
+                  : "border-ink-700 bg-ink-800 text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              🔔 {t.alerts}
+              {alerts.settings.enabled && (
+                <span className="font-mono text-[10px]">
+                  ≥{alerts.settings.minMag.toFixed(1)}
+                </span>
+              )}
+            </button>
+            {showAlertsMenu && (
+              <div className="absolute right-0 top-full z-[1200] mt-2 w-72 rounded-xl border border-ink-700 bg-ink-900 p-3 shadow-2xl space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-slate-200">
+                    {t.alerts}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowAlertsMenu(false)}
+                    className="text-xs text-slate-500 hover:text-slate-200"
+                  >
+                    ✕
+                  </button>
+                </div>
+                <label className="flex items-center justify-between text-xs text-slate-300">
+                  <span>{lang === "en" ? "Enable alerts" : "Activar alertas"}</span>
+                  <input
+                    type="checkbox"
+                    checked={alerts.settings.enabled}
+                    onChange={(e) =>
+                      alerts.update({ enabled: e.target.checked })
+                    }
+                    className="accent-sky-500"
+                  />
+                </label>
+                <label className="block text-xs text-slate-400">
+                  <div className="flex justify-between">
+                    <span>{t.minMag}</span>
+                    <b className="font-mono text-slate-200">
+                      M≥{alerts.settings.minMag.toFixed(1)}
+                    </b>
+                  </div>
+                  <input
+                    type="range"
+                    min={4}
+                    max={7.5}
+                    step={0.5}
+                    value={alerts.settings.minMag}
+                    onChange={(e) =>
+                      alerts.update({ minMag: Number(e.target.value) })
+                    }
+                    className="mt-1 w-full accent-sky-500"
+                  />
+                </label>
+                <label className="flex items-center justify-between text-xs text-slate-300">
+                  <span>{t.alertsSound}</span>
+                  <input
+                    type="checkbox"
+                    checked={alerts.settings.sound}
+                    onChange={(e) => alerts.update({ sound: e.target.checked })}
+                    className="accent-sky-500"
+                  />
+                </label>
+                <div className="flex items-center justify-between gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => playAlertChime(6)}
+                    className="rounded-lg border border-ink-700 bg-ink-800 px-2.5 py-1 text-[11px] text-slate-300 hover:text-white"
+                  >
+                    🔊 {t.alertsTest}
+                  </button>
+                  {"Notification" in window &&
+                    Notification.permission !== "granted" && (
+                      <button
+                        type="button"
+                        onClick={() => void alerts.requestPermission()}
+                        className="rounded-lg border border-sky-500/40 bg-sky-500/10 px-2.5 py-1 text-[11px] text-sky-300 hover:bg-sky-500/20"
+                      >
+                        {lang === "en"
+                          ? "Allow notifications"
+                          : "Permitir avisos"}
+                      </button>
+                    )}
+                </div>
+              </div>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={onNearMe}
+            title={t.nearMe}
+            className={`rounded-lg border px-2.5 py-1.5 text-xs font-medium transition ${
+              geo.coords
+                ? "border-sky-500/40 bg-sky-500/10 text-sky-300"
+                : "border-ink-700 bg-ink-800 text-slate-300 hover:text-white"
+            }`}
+          >
+            📍 {geo.loading ? "…" : t.nearMe}
+          </button>
+          <label className="flex flex-col gap-1">
+            <span className="text-[11px] uppercase tracking-wider text-slate-500">
+              {t.langLabel}
+            </span>
+            <select
+              className={inputClass}
+              value={lang}
+              onChange={(e) => setLang(e.target.value as Lang)}
+              aria-label={t.langLabel}
+            >
+              <option value="es">ES</option>
+              <option value="en">EN</option>
+            </select>
+          </label>
+          <button className={buttonClass} onClick={() => void onShare()}>
+            {shareStatus === "ok"
+              ? t.shared
+              : shareStatus === "fail"
+                ? t.shareFailed
+                : t.share}
+          </button>
+          <button
+            className={buttonClass}
+            onClick={() => {
+              setNow(Date.now());
+              active.reload(true);
+            }}
+          >
+            {t.refresh}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setCmdOpen(true);
+              setCmdQuery("");
+            }}
+            title={
+              lang === "en"
+                ? "Command palette & shortcuts (Ctrl+K / ⌘K)"
+                : "Paleta de comandos y atajos (Ctrl+K / ⌘K)"
+            }
+            className="rounded-lg border border-ink-700 bg-ink-800 px-2.5 py-1.5 font-mono text-xs text-slate-300 transition hover:border-sky-500/50 hover:text-white"
+          >
+            ⌘K
+          </button>
+          <a
+            href="https://github.com/Kromilla/sismos-global"
+            target="_blank"
+            rel="noreferrer"
+            title={
+              lang === "en"
+                ? "Open-source repository on GitHub (MIT)"
+                : "Repositorio Open Source en GitHub (MIT)"
+            }
+            className="flex items-center gap-1 rounded-lg border border-amber-500/40 bg-amber-500/10 px-2.5 py-1.5 text-xs font-medium text-amber-300 transition hover:bg-amber-500/20"
+          >
+            ★ GitHub
+          </a>
         </div>
       </header>
 
       <nav className="flex flex-wrap gap-1 border-b border-ink-800 pb-px">
-        {TABS.map((t) => (
+        {t.tabs.map((tabDef) => (
           <button
-            key={t.id}
-            title={t.hint}
-            onClick={() => setTab(t.id)}
+            key={tabDef.id}
+            title={tabDef.hint}
+            onClick={() => setTab(tabDef.id)}
             className={`rounded-t-lg border-b-2 px-3 py-2 text-sm transition ${
-              tab === t.id
+              tab === tabDef.id
                 ? "border-sky-400 text-slate-100"
                 : "border-transparent text-slate-500 hover:text-slate-300"
             }`}
           >
-            {t.label}
+            {tabDef.label}
           </button>
         ))}
       </nav>
@@ -245,7 +787,7 @@ export default function App() {
         <div className="flex flex-wrap items-end gap-3 rounded-2xl border border-ink-800 bg-ink-900/50 p-3">
           <label className="flex flex-col gap-1">
             <span className="text-[11px] uppercase tracking-wider text-slate-500">
-              Catálogo
+              {t.catalog}
             </span>
             <select
               className={inputClass}
@@ -254,13 +796,13 @@ export default function App() {
                 setSource(e.target.value as "reciente" | "historico")
               }
             >
-              <option value="reciente">Últimos 30 días (M≥2.5)</option>
-              <option value="historico">Histórico desde {histStartYear}</option>
+              <option value="reciente">{t.recent30}</option>
+              <option value="historico">{t.historicFrom(histStartYear)}</option>
             </select>
           </label>
           <label className="flex flex-col gap-1">
             <span className="text-[11px] uppercase tracking-wider text-slate-500">
-              Magnitud mínima:{" "}
+              {t.minMag}:{" "}
               <b className="font-mono text-slate-200">{minMag.toFixed(1)}</b>
             </span>
             <input
@@ -275,7 +817,7 @@ export default function App() {
           </label>
           <label className="flex flex-col gap-1">
             <span className="text-[11px] uppercase tracking-wider text-slate-500">
-              Profundidad máx:{" "}
+              {t.maxDepth}:{" "}
               <b className="font-mono text-slate-200">{maxDepth} km</b>
             </span>
             <input
@@ -290,22 +832,22 @@ export default function App() {
           </label>
           <label className="flex flex-col gap-1">
             <span className="text-[11px] uppercase tracking-wider text-slate-500">
-              Zona
+              {t.zone}
             </span>
             <select
               className={inputClass}
               value={regionId}
               onChange={(e) => selectRegion(e.target.value)}
             >
-              <option value="">Todo el planeta</option>
-              <optgroup label="América Latina">
+              <option value="">{t.wholePlanet}</option>
+              <optgroup label={t.latinAmerica}>
                 {REGIONS.map((r) => (
                   <option key={r.id} value={r.id}>
                     {r.name} — {r.country}
                   </option>
                 ))}
               </optgroup>
-              <optgroup label="Resto del mundo">
+              <optgroup label={t.restOfWorld}>
                 {WORLD_REGIONS.map((r) => (
                   <option key={r.id} value={r.id}>
                     {r.name} — {r.country}
@@ -314,11 +856,54 @@ export default function App() {
               </optgroup>
             </select>
           </label>
+          <label className="flex min-w-[200px] flex-1 flex-col gap-1">
+            <span className="text-[11px] uppercase tracking-wider text-slate-500">
+              {lang === "en" ? "Search" : "Buscar"}
+            </span>
+            <div className="relative flex items-center">
+              <input
+                type="search"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder={t.searchPlaceholder}
+                className={`${inputClass} w-full pr-7`}
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery("")}
+                  title={t.clearSearch}
+                  aria-label={t.clearSearch}
+                  className="absolute right-2 text-xs text-slate-500 hover:text-slate-200"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+          </label>
+          <label className="flex items-center gap-2 pb-1.5 text-xs text-slate-400">
+            <input
+              type="checkbox"
+              checked={onlyTsunami}
+              onChange={(e) => setOnlyTsunami(e.target.checked)}
+              className="accent-sky-500"
+            />
+            {t.tsunamiOnly}
+          </label>
+          <label className="flex items-center gap-2 pb-1.5 text-xs text-slate-400">
+            <input
+              type="checkbox"
+              checked={onlyFelt}
+              onChange={(e) => setOnlyFelt(e.target.checked)}
+              className="accent-sky-500"
+            />
+            {t.feltOnly}
+          </label>
           {tab === "mapa" && (
             <>
               <label className="flex flex-col gap-1">
                 <span className="text-[11px] uppercase tracking-wider text-slate-500">
-                  Color
+                  {t.color}
                 </span>
                 <select
                   className={inputClass}
@@ -327,8 +912,8 @@ export default function App() {
                     setColorBy(e.target.value as "mag" | "depth")
                   }
                 >
-                  <option value="mag">Por magnitud</option>
-                  <option value="depth">Por profundidad</option>
+                  <option value="mag">{t.byMag}</option>
+                  <option value="depth">{t.byDepth}</option>
                 </select>
               </label>
               <label className="flex items-center gap-2 pb-1.5 text-xs text-slate-400">
@@ -338,7 +923,7 @@ export default function App() {
                   onChange={(e) => setShowHeat(e.target.checked)}
                   className="accent-sky-500"
                 />
-                Mapa de calor
+                {t.heatMap}
               </label>
               <label className="flex items-center gap-2 pb-1.5 text-xs text-slate-400">
                 <input
@@ -347,10 +932,118 @@ export default function App() {
                   onChange={(e) => setShowRegions(e.target.checked)}
                   className="accent-sky-500"
                 />
-                Zonas
+                {t.zones}
+              </label>
+              <label className="flex items-center gap-2 pb-1.5 text-xs text-slate-400">
+                <input
+                  type="checkbox"
+                  checked={showPlates}
+                  onChange={(e) => setShowPlates(e.target.checked)}
+                  className="accent-sky-500"
+                />
+                {t.plates}
               </label>
             </>
           )}
+          <div className="ml-auto flex flex-wrap items-center gap-1.5 pb-0.5">
+            <select
+              className={inputClass}
+              value=""
+              onChange={(e) => {
+                const found = FAMOUS_QUAKES.find((f) => f.id === e.target.value);
+                if (found) simulateFamousQuake(found);
+              }}
+              aria-label={
+                lang === "en"
+                  ? "Simulate iconic historical earthquake"
+                  : "Simular terremoto histórico icónico"
+              }
+            >
+              <option value="">
+                {lang === "en"
+                  ? "🏛️ Case study (famous quakes)…"
+                  : "🏛️ Caso de estudio (históricos)…"}
+              </option>
+              {FAMOUS_QUAKES.map((fq) => (
+                <option key={fq.id} value={fq.id}>
+                  {lang === "en" ? fq.labelEn : fq.labelEs}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              className={buttonClass}
+              disabled={filtered.length === 0}
+              onClick={onExportCsv}
+              title="Descargar eventos filtrados en CSV"
+            >
+              ↓ {t.exportCsv}
+            </button>
+            <button
+              type="button"
+              className={buttonClass}
+              disabled={filtered.length === 0}
+              onClick={onExportGeoJson}
+              title="Descargar eventos filtrados en GeoJSON"
+            >
+              ↓ {t.exportGeoJson}
+            </button>
+            <button
+              type="button"
+              className={buttonClass}
+              disabled={filtered.length === 0}
+              onClick={onExportQuakeMl}
+              title={
+                lang === "en"
+                  ? "Export as FDSN QuakeML 1.2 (.xml for ObsPy / SeisComP)"
+                  : "Exportar en estándar FDSN QuakeML 1.2 (.xml para ObsPy / SeisComP)"
+              }
+            >
+              ↓ QuakeML
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".csv,.geojson,.json,.xml,.qml"
+              className="hidden"
+              onChange={(e) => void onImportFile(e)}
+            />
+            <button
+              type="button"
+              className={buttonClass}
+              onClick={() => fileInputRef.current?.click()}
+              title={
+                lang === "en"
+                  ? "Import custom catalog (.csv, .geojson, .xml QuakeML)"
+                  : "Importar catálogo propio (.csv, .geojson, .xml QuakeML)"
+              }
+            >
+              📂 {lang === "en" ? "Import" : "Importar"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {customCatalog && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-sky-500/40 bg-sky-500/10 px-4 py-2 text-xs text-sky-200">
+          <span>
+            📂{" "}
+            <b>
+              {lang === "en" ? "Custom catalog active:" : "Catálogo importado activo:"}{" "}
+              {customCatalog.name}
+            </b>{" "}
+            · {nl(customCatalog.quakes.length)}{" "}
+            {lang === "en"
+              ? "events loaded across all modules (Map, Analytics, PSHA, DuckDB SQL)"
+              : "eventos cargados en todos los módulos (Mapa, Análisis, PSHA, DuckDB SQL)"}
+          </span>
+          <button
+            type="button"
+            onClick={() => setCustomCatalog(null)}
+            className="rounded-md border border-sky-400/40 bg-sky-400/10 px-2.5 py-0.5 text-sky-200 hover:bg-sky-400/20"
+          >
+            {lang === "en" ? "Restore live FDSN catalog" : "Volver al catálogo FDSN"}
+          </button>
         </div>
       )}
 
@@ -358,7 +1051,7 @@ export default function App() {
         <div className="flex flex-wrap items-end gap-3 rounded-2xl border border-ink-800 bg-ink-900/50 p-3">
           <label className="flex flex-col gap-1">
             <span className="text-[11px] uppercase tracking-wider text-slate-500">
-              Catálogo desde
+              {t.catalogFrom}
             </span>
             <select
               className={inputClass}
@@ -374,7 +1067,7 @@ export default function App() {
           </label>
           <label className="flex flex-col gap-1">
             <span className="text-[11px] uppercase tracking-wider text-slate-500">
-              Magnitud mínima:{" "}
+              {t.minMag}:{" "}
               <b className="font-mono text-slate-200">
                 {histMinMag.toFixed(1)}
               </b>
@@ -391,7 +1084,7 @@ export default function App() {
           </label>
           <label className="flex flex-col gap-1">
             <span className="text-[11px] uppercase tracking-wider text-slate-500">
-              Red
+              {t.network}
             </span>
             <select
               className={inputClass}
@@ -400,37 +1093,46 @@ export default function App() {
                 setCatalogSource(e.target.value as CatalogSource)
               }
             >
-              <optgroup label="— Global —">
-                <option value="USGS">USGS — global (recomendado)</option>
+              <optgroup label={t.networkGroups.global}>
+                <option value="USGS">{t.networkLabels.USGS}</option>
               </optgroup>
-              <optgroup label="— Europa y Mediterráneo —">
-                <option value="EMSC">EMSC — SeismicPortal</option>
-                <option value="USGS+EMSC">USGS + EMSC</option>
-                <option value="INGV">INGV — Italia</option>
-                <option value="USGS+INGV">USGS + INGV</option>
+              <optgroup label={t.networkGroups.europe}>
+                <option value="EMSC">{t.networkLabels.EMSC}</option>
+                <option value="USGS+EMSC">{t.networkLabels["USGS+EMSC"]}</option>
+                <option value="INGV">{t.networkLabels.INGV}</option>
+                <option value="USGS+INGV">{t.networkLabels["USGS+INGV"]}</option>
+                <option value="GFZ">{t.networkLabels.GFZ}</option>
+                <option value="USGS+GFZ">{t.networkLabels["USGS+GFZ"]}</option>
+                <option value="IPGP">{t.networkLabels.IPGP}</option>
+                <option value="USGS+IPGP">{t.networkLabels["USGS+IPGP"]}</option>
               </optgroup>
-              <optgroup label="— Oceanía y Pacífico —">
-                <option value="GEONET">GeoNet — Nueva Zelanda</option>
-                <option value="USGS+GEONET">USGS + GeoNet</option>
-                <option value="GA">Geoscience Australia</option>
-                <option value="USGS+GA">USGS + GA</option>
+              <optgroup label={t.networkGroups.oceania}>
+                <option value="GEONET">{t.networkLabels.GEONET}</option>
+                <option value="USGS+GEONET">
+                  {t.networkLabels["USGS+GEONET"]}
+                </option>
+                <option value="GA">{t.networkLabels.GA}</option>
+                <option value="USGS+GA">{t.networkLabels["USGS+GA"]}</option>
               </optgroup>
-              <optgroup label="— Colombia (SGC) —">
-                <option value="ambos">USGS + SGC — Colombia desde 1610</option>
-                <option value="SGC">Solo SGC — Colombia, 1610–hoy</option>
+              <optgroup label={t.networkGroups.americas}>
+                <option value="SSN">{t.networkLabels.SSN}</option>
+                <option value="USGS+SSN">{t.networkLabels["USGS+SSN"]}</option>
+                <option value="ambos">{t.networkLabels.ambos}</option>
+                <option value="SGC">{t.networkLabels.SGC}</option>
               </optgroup>
             </select>
           </label>
           <p className="pb-1.5 text-xs text-slate-500">
-            {scoped ? region.name : "Todo el planeta"} ·{" "}
-            {hist.quakes.length.toLocaleString("es-CO")} eventos ·{" "}
-            {fmtNum((now - histQuery.startTime) / DAY_MS / 365.25, 0)} años
+            {scoped ? region.name : t.wholePlanet} · {nl(hist.quakes.length)}{" "}
+            {t.events} ·{" "}
+            {fmtNum((now - histQuery.startTime) / DAY_MS / 365.25, 0, locale)}{" "}
+            {t.years}
             {Object.keys(hist.counts).length > 0 &&
               " · " +
                 Object.entries(hist.counts)
-                  .map(([net, n]) => `${n.toLocaleString("es-CO")} ${net}`)
+                  .map(([net, n]) => `${nl(n)} ${net}`)
                   .join(" + ")}
-            {hist.fromCache && " · desde caché local"}
+            {hist.fromCache && ` · ${t.fromCache}`}
           </p>
         </div>
       )}
@@ -440,23 +1142,18 @@ export default function App() {
           <Spinner
             label={
               active.progress
-                ? `Descargando catálogo… ${active.progress.loaded.toLocaleString("es-CO")} de ~${active.progress.total.toLocaleString("es-CO")} eventos`
-                : "Consultando el USGS…"
+                ? t.downloading(
+                    nl(active.progress.loaded),
+                    nl(active.progress.total),
+                  )
+                : t.querying
             }
           />
         </div>
       )}
-      {active.error && (
-        <Note tone="warn">
-          No se pudo cargar el catálogo: {active.error}. Revisa la conexión y
-          pulsa Actualizar.
-        </Note>
-      )}
+      {active.error && <Note tone="warn">{t.loadError(active.error)}</Note>}
       {active.degraded.length > 0 && (
-        <Note tone="warn">
-          {active.degraded.join(" y ")} no respondió; se sigue con el resto de
-          fuentes.
-        </Note>
+        <Note tone="warn">{t.degraded(active.degraded.join(" / "))}</Note>
       )}
       {active.warnings.map((w) => (
         <Note key={w} tone="warn">
@@ -464,23 +1161,136 @@ export default function App() {
         </Note>
       ))}
 
+      {alerts.lastTriggered && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-2.5 text-xs text-amber-200">
+          <span>
+            🔔{" "}
+            <b>
+              M{alerts.lastTriggered.mag.toFixed(1)} ·{" "}
+              {alerts.lastTriggered.place}
+            </b>{" "}
+            · {fmtDateTime(alerts.lastTriggered.time, locale)}
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => focusOn(alerts.lastTriggered!)}
+              className="rounded-md border border-amber-400/40 bg-amber-400/10 px-2 py-0.5 text-amber-200 hover:bg-amber-400/20"
+            >
+              {lang === "en" ? "View on map" : "Ver en mapa"}
+            </button>
+            <button
+              type="button"
+              onClick={alerts.dismissLast}
+              className="text-amber-300 hover:text-white"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
+
       <main className="pb-8">
         {tab === "mapa" && (
           <div className="space-y-3">
             <MapView
-              quakes={filtered}
+              quakes={mapQuakes}
               colorBy={colorBy}
               showHeat={showHeat}
               showRegions={showRegions}
+              showPlates={showPlates}
+              rings={mapRings}
+              marker={
+                geo.coords
+                  ? {
+                      lat: geo.coords.lat,
+                      lon: geo.coords.lon,
+                      label: lang === "en" ? "My location" : "Mi ubicación",
+                    }
+                  : null
+              }
               selectedRegionId={regionId || null}
               onSelectRegion={(id) => selectRegion(id ?? "")}
+              onIntensity={setIntensityQuake}
               focus={focus}
+              now={now}
+              lang={lang}
               className="h-[calc(100vh-320px)] min-h-[420px]"
             />
+
+            {/* Barra de reproducción Time-lapse e isosistas activas */}
+            <div className="flex flex-wrap items-center gap-3 rounded-xl border border-ink-800 bg-ink-900/50 px-3 py-2 text-xs">
+              <span className="text-[11px] uppercase tracking-wider text-slate-500">
+                {t.timelapse}
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  if (tlPlaying) {
+                    setTlPlaying(false);
+                  } else {
+                    if (tlProgress >= 99.9) setTlProgress(0);
+                    setTlPlaying(true);
+                  }
+                }}
+                className="rounded-lg border border-sky-500/40 bg-sky-500/10 px-2.5 py-1 font-medium text-sky-300 transition hover:bg-sky-500/20"
+              >
+                {tlPlaying ? `⏸ ${t.pause}` : `▶ ${t.play}`}
+              </button>
+              <select
+                value={tlSpeed}
+                onChange={(e) =>
+                  setTlSpeed(Number(e.target.value) as 1 | 5 | 20)
+                }
+                className="rounded-lg border border-ink-700 bg-ink-900 px-2 py-1 text-xs text-slate-300"
+                aria-label="Speed"
+              >
+                <option value={1}>1×</option>
+                <option value={5}>5×</option>
+                <option value={20}>20×</option>
+              </select>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                step={0.5}
+                value={tlProgress}
+                onChange={(e) => {
+                  setTlPlaying(false);
+                  setTlProgress(Number(e.target.value));
+                }}
+                className="min-w-[160px] flex-1 accent-sky-500"
+              />
+              <span className="font-mono text-[11px] text-slate-400">
+                {fmtDateTime(tlCutoff, locale)} ({nl(mapQuakes.length)}/
+                {nl(filtered.length)})
+              </span>
+              {tlProgress < 99.9 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTlPlaying(false);
+                    setTlProgress(100);
+                  }}
+                  className="text-slate-400 underline hover:text-slate-200"
+                >
+                  100%
+                </button>
+              )}
+              {ringQuake && (
+                <button
+                  type="button"
+                  onClick={() => setRingQuake(null)}
+                  className="ml-auto rounded-lg border border-amber-500/40 bg-amber-500/10 px-2.5 py-1 text-xs text-amber-300 hover:bg-amber-500/20"
+                >
+                  ◎ {t.clearSelectedQuake} (M{ringQuake.mag.toFixed(1)})
+                </button>
+              )}
+            </div>
             {decadas.length > 1 && (
               <div className="flex flex-wrap items-center gap-1.5 text-xs">
                 <span className="mr-1 text-[11px] uppercase tracking-wider text-slate-500">
-                  Década
+                  {t.decade}
                 </span>
                 <button
                   onClick={() => setDecada(null)}
@@ -490,13 +1300,13 @@ export default function App() {
                       : "border-ink-700 text-slate-400 hover:border-ink-600 hover:text-slate-200"
                   }`}
                 >
-                  Todas
+                  {t.all}
                 </button>
                 {decadas.map(([d, n]) => (
                   <button
                     key={d}
                     onClick={() => setDecada(decada === d ? null : d)}
-                    title={`${n.toLocaleString("es-CO")} eventos`}
+                    title={`${nl(n)} ${t.events}`}
                     className={`rounded-md border px-2 py-1 font-mono text-[11px] transition ${
                       decada === d
                         ? "border-sky-500/60 bg-sky-500/10 text-sky-300"
@@ -510,9 +1320,7 @@ export default function App() {
             )}
 
             <div className="flex flex-wrap items-center gap-4 text-xs text-slate-500">
-              <span>
-                {filtered.length.toLocaleString("es-CO")} eventos en pantalla
-              </span>
+              <span>{t.onScreen(nl(filtered.length))}</span>
               <span className="flex flex-wrap items-center gap-2">
                 {colorBy === "mag"
                   ? MAG_CLASSES.map((m) => {
@@ -527,9 +1335,7 @@ export default function App() {
                                 : [...prev, m],
                             )
                           }
-                          title={
-                            oculta ? "Mostrar esta clase" : "Ocultar esta clase"
-                          }
+                          title={oculta ? t.showClass : t.hideClass}
                           className={`flex items-center gap-1 rounded px-1 py-0.5 transition hover:bg-ink-800 ${
                             oculta ? "opacity-35" : ""
                           }`}
@@ -560,21 +1366,26 @@ export default function App() {
                       </span>
                     ))}
               </span>
-              {(clasesOcultas.length > 0 || decada !== null) && (
+              {(clasesOcultas.length > 0 ||
+                decada !== null ||
+                searchQuery.trim() !== "" ||
+                onlyTsunami ||
+                onlyFelt) && (
                 <button
                   onClick={() => {
                     setClasesOcultas([]);
                     setDecada(null);
+                    setSearchQuery("");
+                    setOnlyTsunami(false);
+                    setOnlyFelt(false);
                   }}
                   className="text-slate-400 underline underline-offset-2 hover:text-slate-200"
                 >
-                  Quitar filtros
+                  {t.clearFilters}
                 </button>
               )}
               {colorBy === "mag" && clasesOcultas.length === 0 && (
-                <span className="text-slate-600">
-                  Pulsa una clase para ocultarla
-                </span>
+                <span className="text-slate-600">{t.clickToHide}</span>
               )}
             </div>
           </div>
@@ -585,30 +1396,217 @@ export default function App() {
             quakes={filtered}
             onFocus={focusOn}
             onIntensity={setIntensityQuake}
+            now={now}
+            lang={lang}
           />
         )}
 
-        <Suspense fallback={<Spinner label="Cargando módulo…" />}>
-          {tab === "analisis" && <Analytics quakes={filtered} />}
-          {tab === "pronostico" && <Forecast quakes={hist.quakes} />}
-          {tab === "intensidad" && <Hazard quakes={hist.quakes} />}
-          {tab === "almacen" && <Warehouse quakes={hist.quakes} />}
-          {tab === "aprender" && <Learn />}
+        <Suspense fallback={<Spinner label={t.loadingModule} />}>
+          {tab === "analisis" && (
+            <Analytics
+              quakes={filtered}
+              onFocus={focusOn}
+              onIntensity={setIntensityQuake}
+              lang={lang}
+            />
+          )}
+          {tab === "pronostico" && (
+            <Forecast quakes={worldQuakes} now={now} lang={lang} />
+          )}
+          {tab === "intensidad" && (
+            <Hazard
+              quakes={worldQuakes}
+              lang={lang}
+              userLocation={geo.coords}
+              onRequestLocation={geo.request}
+            />
+          )}
+          {tab === "almacen" && <Warehouse quakes={worldQuakes} lang={lang} />}
+          {tab === "aprender" && <Learn lang={lang} />}
         </Suspense>
       </main>
 
       <footer className="border-t border-ink-800 pt-3 text-[11px] leading-relaxed text-slate-600">
-        Datos: USGS Earthquake Hazards Program y Servicio Geológico Colombiano
-        (dominio público). Los pronósticos son estimaciones estadísticas
-        propias, no productos oficiales del USGS ni del SGC, y no predicen
-        sismos individuales. Para decisiones de construcción o emergencia mandan
-        las autoridades nacionales y la norma sismorresistente vigente.
+        {t.footer}
       </footer>
       {intensityQuake && (
         <QuakeIntensityPanel
           quake={intensityQuake}
           onClose={() => setIntensityQuake(null)}
+          onFocus={focusOn}
+          onShowRings={showRingsOnMap}
+          userLocation={geo.coords}
+          lang={lang}
         />
+      )}
+      {cmdOpen && (
+        <div
+          className="fixed inset-0 z-[1300] flex items-start justify-center bg-slate-950/75 pt-20 backdrop-blur-sm"
+          onClick={() => setCmdOpen(false)}
+        >
+          <div
+            className="w-full max-w-lg overflow-hidden rounded-2xl border border-ink-700 bg-ink-900 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="border-b border-ink-800 p-3">
+              <input
+                type="search"
+                autoFocus
+                value={cmdQuery}
+                onChange={(e) => setCmdQuery(e.target.value)}
+                placeholder={
+                  lang === "en"
+                    ? "Jump to tab, seismic zone, or action…"
+                    : "Ir a pestaña, zona sísmica o acción…"
+                }
+                className={`${inputClass} w-full`}
+              />
+            </div>
+            <div className="max-h-80 overflow-y-auto p-2 text-xs">
+              <div className="px-2 py-1 text-[10px] uppercase tracking-wider text-slate-500">
+                {lang === "en"
+                  ? "Tabs & Quick Actions (Keys 1–7, P, L)"
+                  : "Pestañas y acciones rápidas (Teclas 1–7, P, L)"}
+              </div>
+              {t.tabs
+                .filter((tb) =>
+                  `${tb.label} ${tb.hint}`
+                    .toLowerCase()
+                    .includes(cmdQuery.trim().toLowerCase()),
+                )
+                .map((tb, idx) => (
+                  <button
+                    key={tb.id}
+                    type="button"
+                    onClick={() => {
+                      setTab(tb.id);
+                      setCmdOpen(false);
+                    }}
+                    className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-slate-200 hover:bg-ink-800"
+                  >
+                    <span>
+                      <b>{tb.label}</b>{" "}
+                      <span className="text-slate-500">· {tb.hint}</span>
+                    </span>
+                    <kbd className="rounded border border-ink-700 bg-ink-950 px-1.5 py-0.5 font-mono text-[10px] text-slate-400">
+                      {idx + 1}
+                    </kbd>
+                  </button>
+                ))}
+              <button
+                type="button"
+                onClick={() => {
+                  setShowPlates((v) => !v);
+                  setTab("mapa");
+                  setCmdOpen(false);
+                }}
+                className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-slate-200 hover:bg-ink-800"
+              >
+                <span>
+                  {lang === "en"
+                    ? "Toggle tectonic plate boundaries"
+                    : "Mostrar/ocultar límites de placas tectónicas"}
+                </span>
+                <kbd className="rounded border border-ink-700 bg-ink-950 px-1.5 py-0.5 font-mono text-[10px] text-slate-400">
+                  P
+                </kbd>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setLang((prev) => (prev === "es" ? "en" : "es"));
+                  setCmdOpen(false);
+                }}
+                className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-slate-200 hover:bg-ink-800"
+              >
+                <span>
+                  {lang === "en"
+                    ? "Switch language to Español"
+                    : "Cambiar idioma a English"}
+                </span>
+                <kbd className="rounded border border-ink-700 bg-ink-950 px-1.5 py-0.5 font-mono text-[10px] text-slate-400">
+                  L
+                </kbd>
+              </button>
+              <div className="mt-2 px-2 py-1 text-[10px] uppercase tracking-wider text-slate-500">
+                {lang === "en"
+                  ? "Iconic Historical Earthquakes (1-click simulation)"
+                  : "Terremotos históricos icónicos (simulación en 1 clic)"}
+              </div>
+              {FAMOUS_QUAKES.filter((fq) =>
+                `${fq.labelEs} ${fq.labelEn} ${fq.country} ${fq.year}`
+                  .toLowerCase()
+                  .includes(cmdQuery.trim().toLowerCase()),
+              ).map((fq) => (
+                <button
+                  key={fq.id}
+                  type="button"
+                  onClick={() => {
+                    simulateFamousQuake(fq);
+                    setCmdOpen(false);
+                  }}
+                  className="flex w-full items-center justify-between rounded-lg px-3 py-1.5 text-left text-slate-200 hover:bg-ink-800"
+                >
+                  <span>
+                    <b className="font-mono text-amber-300">
+                      M{fq.mag.toFixed(1)}
+                    </b>{" "}
+                    {lang === "en" ? fq.labelEn : fq.labelEs}
+                  </span>
+                  <span className="font-mono text-[10px] text-amber-400">
+                    MMI ↗
+                  </span>
+                </button>
+              ))}
+              <div className="mt-2 px-2 py-1 text-[10px] uppercase tracking-wider text-slate-500">
+                {lang === "en"
+                  ? "Seismic Zones (49 global regions)"
+                  : "Zonas sismogénicas (49 regiones del planeta)"}
+              </div>
+              {ALL_REGIONS.filter((r) =>
+                `${r.name} ${r.country} ${r.id}`
+                  .toLowerCase()
+                  .includes(cmdQuery.trim().toLowerCase()),
+              )
+                .slice(0, 12)
+                .map((r) => (
+                  <button
+                    key={r.id}
+                    type="button"
+                    onClick={() => {
+                      selectRegion(r.id);
+                      setTab("mapa");
+                      setCmdOpen(false);
+                    }}
+                    className="flex w-full items-center justify-between rounded-lg px-3 py-1.5 text-left text-slate-300 hover:bg-ink-800"
+                  >
+                    <span>
+                      {r.name}{" "}
+                      <span className="text-slate-500">— {r.country}</span>
+                    </span>
+                    <span className="font-mono text-[10px] text-sky-400">
+                      ↗
+                    </span>
+                  </button>
+                ))}
+            </div>
+            <div className="flex items-center justify-between border-t border-ink-800 bg-ink-950/60 px-3 py-2 text-[11px] text-slate-500">
+              <span>
+                {lang === "en"
+                  ? "Press Esc to close · 1–7 to switch tabs"
+                  : "Pulsa Esc para cerrar · 1–7 para cambiar de pestaña"}
+              </span>
+              <a
+                href="https://github.com/Kromilla/sismos-global"
+                target="_blank"
+                rel="noreferrer"
+                className="text-amber-300 hover:underline"
+              >
+                ★ GitHub
+              </a>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

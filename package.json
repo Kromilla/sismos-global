@@ -1,7 +1,32 @@
 {
   "name": "sismos-global",
-  "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
+  "license": "MIT",
+  "author": "Carlos (https://github.com/Kromilla)",
+  "homepage": "https://github.com/Kromilla/sismos-global",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Kromilla/sismos-global.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Kromilla/sismos-global/issues"
+  },
+  "keywords": [
+    "seismology",
+    "earthquake",
+    "psha",
+    "etas",
+    "gutenberg-richter",
+    "omori-utsu",
+    "duckdb-wasm",
+    "webassembly",
+    "fdsn",
+    "usgs",
+    "emsc",
+    "leaflet",
+    "react",
+    "typescript"
+  ],
   "type": "module",
   "scripts": {
     "dev": "vite",

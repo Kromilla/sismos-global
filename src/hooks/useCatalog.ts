@@ -29,10 +29,10 @@ function parseSources(source: CatalogSource): string[] {
   return source.split("+");
 }
 
-const EMPTY_FDSN = { quakes: [] as Quake[], fromCache: true };
+const EMPTY_FDSN = { quakes: [] as Quake[], fromCache: false };
 const EMPTY_SGC = {
   quakes: [] as Quake[],
-  fromCache: true,
+  fromCache: false,
   truncatedWindows: 0,
 };
 
@@ -93,88 +93,95 @@ export function useCatalog(
     // Lanza todas las redes en paralelo con allSettled: si una falla, el resto sigue.
     const fdsnPromises = fdsnParts.map((netId) => {
       const net = FDSN_NETWORKS[netId];
-      if (!net) return Promise.resolve(EMPTY_FDSN);
-      return loadFdsnCatalog(net, query, ttlMs, ac.signal, onProgress).catch(
-        () => EMPTY_FDSN,
-      );
+      if (!net) return Promise.reject(new Error(`Red desconocida: ${netId}`));
+      return loadFdsnCatalog(net, query, ttlMs, ac.signal, onProgress);
     });
 
     const sgcPromise = wantsSgc
       ? loadSgcCatalog(query, ttlMs, ac.signal, onProgress)
       : Promise.resolve(EMPTY_SGC);
 
-    Promise.allSettled([Promise.all(fdsnPromises), sgcPromise]).then(
-      ([fdsnRes, sgcRes]) => {
-        if (!alive || ac.signal.aborted) return;
+    Promise.all([
+      Promise.allSettled(fdsnPromises),
+      Promise.allSettled([sgcPromise]),
+    ]).then(([fdsnSettled, [sgcRes]]) => {
+      if (!alive || ac.signal.aborted) return;
 
-        const failures: string[] = [];
+      const failures: string[] = [];
+      const successfulCacheFlags: boolean[] = [];
 
-        const fdsnResults =
-          fdsnRes.status === "fulfilled"
-            ? fdsnRes.value
-            : (failures.push(...fdsnParts), fdsnParts.map(() => EMPTY_FDSN));
-
-        const sgcResult =
-          sgcRes.status === "fulfilled"
-            ? sgcRes.value
-            : (failures.push("SGC"), EMPTY_SGC);
-
-        const totalExpected = fdsnParts.length + (wantsSgc ? 1 : 0);
-        if (failures.length === totalExpected) {
-          setError("No se pudo consultar ningún catálogo");
-          setLoading(false);
-          return;
+      const fdsnResults = fdsnSettled.map((res, idx) => {
+        if (res.status === "fulfilled") {
+          successfulCacheFlags.push(res.value.fromCache);
+          return res.value;
         }
+        failures.push(fdsnParts[idx]);
+        return EMPTY_FDSN;
+      });
 
-        // Redes ordenadas por prioridad implícita (el orden en que aparecen en 'source')
-        let merged: Quake[] = [];
-        const newCounts: Record<string, number> = {};
+      const sgcResult =
+        sgcRes.status === "fulfilled"
+          ? (wantsSgc && successfulCacheFlags.push(sgcRes.value.fromCache),
+            sgcRes.value)
+          : (failures.push("SGC"), EMPTY_SGC);
 
-        for (let i = 0; i < fdsnResults.length; i++) {
-          const netId = fdsnParts[i];
-          const result = fdsnResults[i];
-
-          if (merged.length === 0) {
-            merged = result.quakes;
-            newCounts[netId] = result.quakes.length;
-          } else {
-            const beforeMerge = merged.length;
-            merged = mergeCatalogs(merged, result.quakes);
-            newCounts[netId] = merged.length - beforeMerge;
-          }
-        }
-
-        // Si hay SGC, fundir con la misma lógica de deduplicación espacio-temporal.
-        if (wantsSgc && sgcResult.quakes.length > 0) {
-          if (merged.length === 0) {
-            merged = sgcResult.quakes;
-            newCounts["SGC"] = sgcResult.quakes.length;
-          } else {
-            const beforeMerge = merged.length;
-            merged = mergeCatalogs(merged, sgcResult.quakes);
-            newCounts["SGC"] = merged.length - beforeMerge;
-          }
-        }
-
-        merged.sort((a, b) => b.time - a.time);
-
-        setQuakes(merged);
-        setCounts(newCounts);
-        setFromCache(
-          fdsnResults.every((r) => r.fromCache) && sgcResult.fromCache,
-        );
-        setDegraded(failures);
-
-        const warns: string[] = [];
-        if (sgcResult.truncatedWindows > 0) {
-          warns.push(
-            `El SGC recortó ${sgcResult.truncatedWindows} ventana(s) por su tope de 1000 registros: faltan réplicas de los días más activos.`,
-          );
-        }
-        setWarnings(warns);
+      const totalExpected = fdsnParts.length + (wantsSgc ? 1 : 0);
+      if (failures.length === totalExpected) {
+        setError("No se pudo consultar ningún catálogo");
         setLoading(false);
-      },
-    );
+        return;
+      }
+
+      // Redes ordenadas por prioridad implícita (el orden en que aparecen en 'source')
+      let merged: Quake[] = [];
+      const newCounts: Record<string, number> = {};
+
+      for (let i = 0; i < fdsnResults.length; i++) {
+        const netId = fdsnParts[i];
+        if (failures.includes(netId)) continue;
+        const result = fdsnResults[i];
+
+        if (merged.length === 0) {
+          merged = result.quakes;
+          newCounts[netId] = result.quakes.length;
+        } else {
+          const beforeMerge = merged.length;
+          merged = mergeCatalogs(merged, result.quakes);
+          newCounts[netId] = merged.length - beforeMerge;
+        }
+      }
+
+      // Si hay SGC, fundir con la misma lógica de deduplicación espacio-temporal.
+      if (wantsSgc && !failures.includes("SGC") && sgcResult.quakes.length > 0) {
+        if (merged.length === 0) {
+          merged = sgcResult.quakes;
+          newCounts["SGC"] = sgcResult.quakes.length;
+        } else {
+          const beforeMerge = merged.length;
+          merged = mergeCatalogs(merged, sgcResult.quakes);
+          newCounts["SGC"] = merged.length - beforeMerge;
+        }
+      }
+
+      merged.sort((a, b) => b.time - a.time);
+
+      setQuakes(merged);
+      setCounts(newCounts);
+      setFromCache(
+        successfulCacheFlags.length > 0 &&
+          successfulCacheFlags.every(Boolean),
+      );
+      setDegraded(failures);
+
+      const warns: string[] = [];
+      if (sgcResult.truncatedWindows > 0) {
+        warns.push(
+          `El SGC recortó ${sgcResult.truncatedWindows} ventana(s) por su tope de 1000 registros: faltan réplicas de los días más activos.`,
+        );
+      }
+      setWarnings(warns);
+      setLoading(false);
+    });
 
     return () => {
       alive = false;

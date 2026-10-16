@@ -131,7 +131,7 @@ function urlFor(source: string, id: string): string {
     case "GFZ":
       return `https://geofon.gfz-potsdam.de/eqinfo/event.php?id=${id.replace("GFZ:", "")}`;
     case "IPGP":
-      return `http://ws.ipgp.fr/fdsnws/event/1/query?eventid=${id.replace("IPGP:", "")}&format=text`;
+      return `https://ws.ipgp.fr/fdsnws/event/1/query?eventid=${id.replace("IPGP:", "")}&format=text`;
     case "SSN":
       return `http://www2.ssn.unam.mx:8080/catalogo/`;
     default:
