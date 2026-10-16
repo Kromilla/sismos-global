@@ -103,10 +103,11 @@ export function sitePsha(
     .map((q) => ({ q, dist: haversineKm(site.lat, site.lon, q.lat, q.lon) }))
     .filter((s) => s.dist <= maxDist);
   if (sources.length < 5) return null;
+  if (mmax <= mc || b <= 0) return null;
 
   const dM = 0.1;
   const nBins = Math.max(1, Math.round((mmax - mc) / dM));
-  const norm = 10 ** (-b * mc) - 10 ** (-b * mmax);
+  const norm = Math.max(1e-9, 10 ** (-b * mc) - 10 ** (-b * mmax));
   const magBins = Array.from({ length: nBins }, (_, i) => {
     const m1 = mc + i * dM;
     const m2 = m1 + dM;

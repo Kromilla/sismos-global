@@ -16,3 +16,4 @@ Thumbs.db
 
 # configuración local del agente
 .claude/
+.antigravity/
