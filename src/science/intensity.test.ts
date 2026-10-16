@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   SITE_CLASSES,
+  buildResponseSpectrum,
   buildSyntheticWaveform,
   estimateWaveArrivals,
   inferTectonicRegime,
@@ -192,4 +193,17 @@ describe("Modelos estadísticos del catálogo (G–R, Weichert, G–K, Omori, ET
     expect(psha!.mmi2475).toBeGreaterThanOrEqual(psha!.mmi475);
     expect(psha!.deagg.length).toBeGreaterThan(0);
   });
+
+  it("construye espectro de respuesta elástico Sa(T) al 5% y refleja amplificación en suelo blando", () => {
+    const rockSpec = buildResponseSpectrum(7.5, 45, "rock");
+    const lacustrineSpec = buildResponseSpectrum(7.5, 45, "lacustrine");
+    expect(rockSpec.points.length).toBeGreaterThan(15);
+    expect(rockSpec.sdsG).toBeGreaterThan(rockSpec.pgaG);
+    expect(lacustrineSpec.sdsG).toBeGreaterThan(rockSpec.sdsG);
+    expect(lacustrineSpec.tsSec).toBeGreaterThan(rockSpec.tsSec);
+    expect(lacustrineSpec.resonance.highRiseG).toBeGreaterThan(
+      rockSpec.resonance.highRiseG,
+    );
+  });
 });
+

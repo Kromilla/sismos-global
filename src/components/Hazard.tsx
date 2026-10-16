@@ -35,6 +35,7 @@ import {
   IPE_MODELS,
   MMI_SCALE,
   SITE_CLASSES,
+  buildResponseSpectrum,
   mmiColor,
   mmiLevel,
   mmiRoman,
@@ -275,6 +276,28 @@ export default function Hazard({
       etiqueta: `M${d.magBin.toFixed(1)} / ${d.distBin}-${d.distBin + 50}km`,
       aporte: d.contribution * 100,
     })) ?? [];
+
+  const designSpectrum = (() => {
+    if (!psha) return null;
+    const domMag = psha.deagg[0]?.magBin ?? 6.5;
+    const domDist = Math.max(15, (psha.deagg[0]?.distBin ?? 25) + 25);
+    const base = buildResponseSpectrum(domMag, domDist, siteId);
+    const scale475 =
+      base.pgaG > 1e-6 ? psha.pga475G / base.pgaG : 1;
+    const scale2475 =
+      base.pgaG > 1e-6 ? psha.pga2475G / base.pgaG : 1;
+    const chart = base.points.map((p) => ({
+      t: p.periodSec,
+      sa475: Number((p.saG * scale475 * 100).toFixed(2)),
+      sa2475: Number((p.saG * scale2475 * 100).toFixed(2)),
+    }));
+    return {
+      chart,
+      tsSec: base.tsSec,
+      vulnerableEs: base.resonance.vulnerableClassEs,
+      vulnerableEn: base.resonance.vulnerableClassEn,
+    };
+  })();
 
   return (
     <div className="space-y-4">
@@ -518,6 +541,99 @@ export default function Hazard({
               </Note>
             </Card>
           </div>
+
+          {designSpectrum && (
+            <Card
+              title={
+                en
+                  ? `Elastic Design Response Spectrum Sa(T) in ${city.name} (5% damping)`
+                  : `Espectro de respuesta elástico de diseño Sa(T) en ${city.name} (5% amortiguamiento)`
+              }
+              subtitle={
+                en
+                  ? `Pseudo-spectral acceleration (%g) vs structural period T (s) for 475-yr and 2475-yr return periods · ${site.nameEn}`
+                  : `Aceleración espectral (%g) según el periodo fundamental T (s) del edificio para 475 y 2475 años · ${site.name}`
+              }
+            >
+              <div className="h-60">
+                <ResponsiveContainer>
+                  <LineChart
+                    data={designSpectrum.chart}
+                    margin={{ top: 8, right: 16, bottom: 4, left: 0 }}
+                  >
+                    <CartesianGrid {...grid} />
+                    <XAxis
+                      dataKey="t"
+                      type="number"
+                      domain={[0, 3]}
+                      unit=" s"
+                      {...axis}
+                    />
+                    <YAxis {...axis} unit="% g" />
+                    <RTooltip
+                      contentStyle={tooltipStyle}
+                      formatter={(v: unknown, name: unknown) => [
+                        `${Number(v).toFixed(1)}% g`,
+                        String(name),
+                      ]}
+                      labelFormatter={(v: unknown) =>
+                        `T = ${Number(v).toFixed(2)} s (~${Math.max(1, Math.round(Number(v) * 10))} ${en ? "stories" : "pisos"})`
+                      }
+                    />
+                    <ReferenceLine
+                      x={designSpectrum.tsSec}
+                      stroke="#facc15"
+                      strokeDasharray="3 3"
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="sa475"
+                      name={en ? "Design 475 yr (10%/50y)" : "Diseño 475 años (10%/50a)"}
+                      stroke="#38bdf8"
+                      strokeWidth={2}
+                      dot={false}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="sa2475"
+                      name={en ? "Extreme 2475 yr (2%/50y)" : "Extremo 2475 años (2%/50a)"}
+                      stroke="#f43f5e"
+                      strokeWidth={2}
+                      strokeDasharray="5 3"
+                      dot={false}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+              <Note>
+                {en ? (
+                  <>
+                    By the rule of thumb <b>T ≈ 0.1 · N</b> (where N is number of
+                    stories), a 2-story house vibrates at ~0.2 s and a 15-story
+                    building at ~1.5 s. Corner period{" "}
+                    <b>Ts = {designSpectrum.tsSec.toFixed(2)} s</b>. Highest
+                    demand:{" "}
+                    <b className="text-amber-300">
+                      {designSpectrum.vulnerableEn}
+                    </b>
+                    .
+                  </>
+                ) : (
+                  <>
+                    Por la regla práctica <b>T ≈ 0.1 · N</b> (donde N es el
+                    número de pisos), una casa de 2 pisos vibra a ~0.2 s y una
+                    torre de 15 pisos a ~1.5 s. Periodo esquina{" "}
+                    <b>Ts = {designSpectrum.tsSec.toFixed(2)} s</b>. Mayor
+                    demanda relativa:{" "}
+                    <b className="text-amber-300">
+                      {designSpectrum.vulnerableEs}
+                    </b>
+                    .
+                  </>
+                )}
+              </Note>
+            </Card>
+          )}
 
           <Card
             title={`Sismos que más se sintieron en ${city.name}`}

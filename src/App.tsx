@@ -3,9 +3,11 @@ import {
   lazy,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import type { CatalogQuery, CatalogSource, Quake } from "./types";
+import { FAMOUS_QUAKES } from "./data/famousQuakes";
 import {
   ALL_REGIONS,
   REGIONS,
@@ -48,8 +50,10 @@ import {
 } from "./i18n/shell";
 import {
   downloadTextFile,
+  parseUserCatalog,
   quakesToCsv,
   quakesToGeoJson,
+  quakesToQuakeMl,
 } from "./utils/exportCatalog";
 
 const Analytics = lazy(() => import("./components/Analytics"));
@@ -150,6 +154,11 @@ export default function App() {
   const [tlPlaying, setTlPlaying] = useState(false);
   const [tlProgress, setTlProgress] = useState(100);
   const [tlSpeed, setTlSpeed] = useState<1 | 5 | 20>(5);
+  const [customCatalog, setCustomCatalog] = useState<{
+    name: string;
+    quakes: Quake[];
+  } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [shareStatus, setShareStatus] = useState<"idle" | "ok" | "fail">(
     "idle",
   );
@@ -336,10 +345,12 @@ export default function App() {
 
   const needsHistory = tab === "analisis" || needsWorld;
   const active = needsHistory ? hist : source === "reciente" ? live : hist;
+  const baseQuakes = customCatalog ? customCatalog.quakes : active.quakes;
+  const worldQuakes = customCatalog ? customCatalog.quakes : hist.quakes;
 
   const filtered = useMemo(() => {
     const needle = searchQuery.trim().toLowerCase();
-    return active.quakes.filter((q) => {
+    return baseQuakes.filter((q) => {
       if (q.mag < minMag || q.depth > maxDepth) return false;
       if (region && !inBbox(q.lat, q.lon, region.bbox)) return false;
       if (onlyTsunami && !q.tsunami) return false;
@@ -357,7 +368,7 @@ export default function App() {
       return true;
     });
   }, [
-    active.quakes,
+    baseQuakes,
     minMag,
     maxDepth,
     region,
@@ -405,12 +416,12 @@ export default function App() {
   /** Décadas con eventos en el catálogo actual, de la más reciente a la más antigua. */
   const decadas = useMemo(() => {
     const cuenta = new Map<number, number>();
-    for (const q of active.quakes) {
+    for (const q of baseQuakes) {
       const d = Math.floor(new Date(q.time).getUTCFullYear() / 10) * 10;
       cuenta.set(d, (cuenta.get(d) ?? 0) + 1);
     }
     return [...cuenta.entries()].sort((x, y) => y[0] - x[0]);
-  }, [active.quakes]);
+  }, [baseQuakes]);
 
   const strongest = useMemo(
     () =>
@@ -476,6 +487,36 @@ export default function App() {
       quakesToGeoJson(filtered),
       "application/geo+json;charset=utf-8",
     );
+  };
+
+  const onExportQuakeMl = () => {
+    downloadTextFile(
+      `sismos-${source}-${filtered.length}.xml`,
+      quakesToQuakeMl(filtered),
+      "application/xml;charset=utf-8",
+    );
+  };
+
+  const onImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const parsed = parseUserCatalog(text);
+      if (parsed.length > 0) {
+        setCustomCatalog({ name: file.name, quakes: parsed });
+      }
+    } catch {
+      // Archivo inválido
+    }
+  };
+
+  const simulateFamousQuake = (q: Quake) => {
+    setRingQuake(q);
+    setIntensityQuake(q);
+    setFocus({ lat: q.lat, lon: q.lon, zoom: 6 });
+    setTab("mapa");
   };
 
   const onShare = async () => {
@@ -904,7 +945,31 @@ export default function App() {
               </label>
             </>
           )}
-          <div className="ml-auto flex items-center gap-1.5 pb-0.5">
+          <div className="ml-auto flex flex-wrap items-center gap-1.5 pb-0.5">
+            <select
+              className={inputClass}
+              value=""
+              onChange={(e) => {
+                const found = FAMOUS_QUAKES.find((f) => f.id === e.target.value);
+                if (found) simulateFamousQuake(found);
+              }}
+              aria-label={
+                lang === "en"
+                  ? "Simulate iconic historical earthquake"
+                  : "Simular terremoto histórico icónico"
+              }
+            >
+              <option value="">
+                {lang === "en"
+                  ? "🏛️ Case study (famous quakes)…"
+                  : "🏛️ Caso de estudio (históricos)…"}
+              </option>
+              {FAMOUS_QUAKES.map((fq) => (
+                <option key={fq.id} value={fq.id}>
+                  {lang === "en" ? fq.labelEn : fq.labelEs}
+                </option>
+              ))}
+            </select>
             <button
               type="button"
               className={buttonClass}
@@ -923,7 +988,62 @@ export default function App() {
             >
               ↓ {t.exportGeoJson}
             </button>
+            <button
+              type="button"
+              className={buttonClass}
+              disabled={filtered.length === 0}
+              onClick={onExportQuakeMl}
+              title={
+                lang === "en"
+                  ? "Export as FDSN QuakeML 1.2 (.xml for ObsPy / SeisComP)"
+                  : "Exportar en estándar FDSN QuakeML 1.2 (.xml para ObsPy / SeisComP)"
+              }
+            >
+              ↓ QuakeML
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".csv,.geojson,.json,.xml,.qml"
+              className="hidden"
+              onChange={(e) => void onImportFile(e)}
+            />
+            <button
+              type="button"
+              className={buttonClass}
+              onClick={() => fileInputRef.current?.click()}
+              title={
+                lang === "en"
+                  ? "Import custom catalog (.csv, .geojson, .xml QuakeML)"
+                  : "Importar catálogo propio (.csv, .geojson, .xml QuakeML)"
+              }
+            >
+              📂 {lang === "en" ? "Import" : "Importar"}
+            </button>
           </div>
+        </div>
+      )}
+
+      {customCatalog && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-sky-500/40 bg-sky-500/10 px-4 py-2 text-xs text-sky-200">
+          <span>
+            📂{" "}
+            <b>
+              {lang === "en" ? "Custom catalog active:" : "Catálogo importado activo:"}{" "}
+              {customCatalog.name}
+            </b>{" "}
+            · {nl(customCatalog.quakes.length)}{" "}
+            {lang === "en"
+              ? "events loaded across all modules (Map, Analytics, PSHA, DuckDB SQL)"
+              : "eventos cargados en todos los módulos (Mapa, Análisis, PSHA, DuckDB SQL)"}
+          </span>
+          <button
+            type="button"
+            onClick={() => setCustomCatalog(null)}
+            className="rounded-md border border-sky-400/40 bg-sky-400/10 px-2.5 py-0.5 text-sky-200 hover:bg-sky-400/20"
+          >
+            {lang === "en" ? "Restore live FDSN catalog" : "Volver al catálogo FDSN"}
+          </button>
         </div>
       )}
 
@@ -1291,17 +1411,17 @@ export default function App() {
             />
           )}
           {tab === "pronostico" && (
-            <Forecast quakes={hist.quakes} now={now} lang={lang} />
+            <Forecast quakes={worldQuakes} now={now} lang={lang} />
           )}
           {tab === "intensidad" && (
             <Hazard
-              quakes={hist.quakes}
+              quakes={worldQuakes}
               lang={lang}
               userLocation={geo.coords}
               onRequestLocation={geo.request}
             />
           )}
-          {tab === "almacen" && <Warehouse quakes={hist.quakes} lang={lang} />}
+          {tab === "almacen" && <Warehouse quakes={worldQuakes} lang={lang} />}
           {tab === "aprender" && <Learn lang={lang} />}
         </Suspense>
       </main>
@@ -1408,6 +1528,36 @@ export default function App() {
                   L
                 </kbd>
               </button>
+              <div className="mt-2 px-2 py-1 text-[10px] uppercase tracking-wider text-slate-500">
+                {lang === "en"
+                  ? "Iconic Historical Earthquakes (1-click simulation)"
+                  : "Terremotos históricos icónicos (simulación en 1 clic)"}
+              </div>
+              {FAMOUS_QUAKES.filter((fq) =>
+                `${fq.labelEs} ${fq.labelEn} ${fq.country} ${fq.year}`
+                  .toLowerCase()
+                  .includes(cmdQuery.trim().toLowerCase()),
+              ).map((fq) => (
+                <button
+                  key={fq.id}
+                  type="button"
+                  onClick={() => {
+                    simulateFamousQuake(fq);
+                    setCmdOpen(false);
+                  }}
+                  className="flex w-full items-center justify-between rounded-lg px-3 py-1.5 text-left text-slate-200 hover:bg-ink-800"
+                >
+                  <span>
+                    <b className="font-mono text-amber-300">
+                      M{fq.mag.toFixed(1)}
+                    </b>{" "}
+                    {lang === "en" ? fq.labelEn : fq.labelEs}
+                  </span>
+                  <span className="font-mono text-[10px] text-amber-400">
+                    MMI ↗
+                  </span>
+                </button>
+              ))}
               <div className="mt-2 px-2 py-1 text-[10px] uppercase tracking-wider text-slate-500">
                 {lang === "en"
                   ? "Seismic Zones (49 global regions)"

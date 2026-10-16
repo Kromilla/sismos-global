@@ -5,6 +5,7 @@ import {
   DEFAULT_IPE,
   IPE_MODELS,
   SITE_CLASSES,
+  buildResponseSpectrum,
   buildSyntheticWaveform,
   estimateWaveArrivals,
   hypocentralKm,
@@ -18,6 +19,7 @@ import {
   seismicMomentNm,
   siteClassById,
   wellsCoppersmithLength,
+  type FocalStyle,
   type SiteClassId,
 } from "../science/intensity";
 import { fmtEnergy, haversineKm, tntTons } from "../science/stats";
@@ -44,6 +46,83 @@ interface Props {
   lang?: Lang;
 }
 
+function FocalBeachball({
+  style,
+  color,
+  title,
+}: {
+  style: FocalStyle;
+  color: string;
+  title: string;
+}) {
+  return (
+    <svg
+      viewBox="0 0 52 52"
+      className="h-12 w-12 shrink-0"
+      role="img"
+      aria-label={title}
+    >
+      <title>{title}</title>
+      <circle
+        cx={26}
+        cy={26}
+        r={22}
+        fill={style === "normal" || style === "intraslab" ? color : "#0f172a"}
+        stroke="#64748b"
+        strokeWidth={1.5}
+      />
+      {style === "thrust" && (
+        <path
+          d="M 26 4 Q 13 26 26 48 Q 39 26 26 4 Z"
+          fill={color}
+          stroke="#e2e8f0"
+          strokeWidth={1}
+        />
+      )}
+      {(style === "normal" || style === "intraslab") && (
+        <path
+          d="M 26 4 Q 14 26 26 48 Q 38 26 26 4 Z"
+          fill="#0f172a"
+          stroke="#e2e8f0"
+          strokeWidth={1}
+        />
+      )}
+      {style === "strike-slip" && (
+        <>
+          <path
+            d="M 26 26 L 10.4 10.4 A 22 22 0 0 1 41.6 10.4 Z M 26 26 L 41.6 41.6 A 22 22 0 0 1 10.4 41.6 Z"
+            fill={color}
+          />
+          <line
+            x1={10.4}
+            y1={10.4}
+            x2={41.6}
+            y2={41.6}
+            stroke="#e2e8f0"
+            strokeWidth={1}
+          />
+          <line
+            x1={41.6}
+            y1={10.4}
+            x2={10.4}
+            y2={41.6}
+            stroke="#e2e8f0"
+            strokeWidth={1}
+          />
+        </>
+      )}
+      <circle
+        cx={26}
+        cy={26}
+        r={22}
+        fill="none"
+        stroke="#94a3b8"
+        strokeWidth={1.2}
+      />
+    </svg>
+  );
+}
+
 export default function QuakeIntensityPanel({
   quake,
   onClose,
@@ -57,6 +136,7 @@ export default function QuakeIntensityPanel({
   const ipe = IPE_MODELS[DEFAULT_IPE];
   const [customDistKm, setCustomDistKm] = useState(50);
   const [siteId, setSiteId] = useState<SiteClassId>("rock");
+  const [waveTab, setWaveTab] = useState<"waves" | "spectrum">("waves");
   const site = siteClassById(siteId);
 
   useEffect(() => {
@@ -139,6 +219,38 @@ export default function QuakeIntensityPanel({
   const m0Mantissa = m0 / 10 ** m0Exp;
   const regime = inferTectonicRegime(quake);
 
+  const spectrum = useMemo(
+    () => buildResponseSpectrum(quake.mag, customRhypo, siteId, ipe.mmi),
+    [quake.mag, customRhypo, siteId, ipe.mmi],
+  );
+  const rockSpectrum = useMemo(
+    () => buildResponseSpectrum(quake.mag, customRhypo, "rock", ipe.mmi),
+    [quake.mag, customRhypo, ipe.mmi],
+  );
+  const spectrumPaths = useMemo(() => {
+    const w = 520;
+    const h = 56;
+    const maxT = 3.0;
+    const maxSa = Math.max(
+      1e-4,
+      spectrum.sdsG * 1.15,
+      rockSpectrum.sdsG * 1.15,
+    );
+    const toPath = (pts: { periodSec: number; saG: number }[]) =>
+      pts
+        .map((p, i) => {
+          const x = (p.periodSec / maxT) * w;
+          const y = h - 6 - (p.saG / maxSa) * (h - 14);
+          return `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`;
+        })
+        .join(" ");
+    return {
+      sitePath: toPath(spectrum.points),
+      rockPath: toPath(rockSpectrum.points),
+      tsX: (spectrum.tsSec / maxT) * w,
+    };
+  }, [spectrum, rockSpectrum]);
+
   const userImpact = useMemo(() => {
     if (!userLocation) return null;
     const distKm = haversineKm(
@@ -168,12 +280,23 @@ export default function QuakeIntensityPanel({
         onClick={(e) => e.stopPropagation()}
       >
         {/* Cabecera */}
-        <div className="flex items-start gap-4 border-b border-slate-800 p-5">
-          <div
-            className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl text-xl font-bold text-slate-950"
-            style={{ background: magColor(quake.mag) }}
-          >
-            {quake.mag.toFixed(1)}
+        <div className="flex items-start gap-3 border-b border-slate-800 p-5">
+          <div className="flex flex-col items-center gap-1.5">
+            <div
+              className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl text-xl font-bold text-slate-950"
+              style={{ background: magColor(quake.mag) }}
+            >
+              {quake.mag.toFixed(1)}
+            </div>
+            <FocalBeachball
+              style={regime.style}
+              color={magColor(quake.mag)}
+              title={
+                en
+                  ? `${regime.mechanismEn} · Nodal plane φ=${regime.nodalPlane.strike}° δ=${regime.nodalPlane.dip}° λ=${regime.nodalPlane.rake}°`
+                  : `${regime.mechanismEs} · Plano nodal φ=${regime.nodalPlane.strike}° δ=${regime.nodalPlane.dip}° λ=${regime.nodalPlane.rake}°`
+              }
+            />
           </div>
           <div className="min-w-0 flex-1">
             <p className="truncate text-base font-semibold text-slate-100">
@@ -230,7 +353,11 @@ export default function QuakeIntensityPanel({
                 {en ? "Regime:" : "Régimen:"}{" "}
                 <b className="text-sky-300">
                   {en ? regime.labelEn : regime.labelEs}
-                </b>
+                </b>{" "}
+                <span className="font-mono text-[10px] text-slate-500">
+                  (φ={regime.nodalPlane.strike}° δ={regime.nodalPlane.dip}° λ=
+                  {regime.nodalPlane.rake}°)
+                </span>
               </span>
             </div>
             <div className="mt-2.5 flex flex-wrap items-center gap-2 text-xs">
@@ -380,7 +507,7 @@ export default function QuakeIntensityPanel({
             </div>
           </div>
 
-          {/* Tiempos de llegada P/S + Sismograma sintético SVG */}
+          {/* Tiempos de llegada P/S + Sismograma sintético SVG / Espectro de Respuesta Sa(T) */}
           <div className="rounded-xl border border-slate-800/90 bg-slate-900/70 px-3 py-2">
             <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2 text-[11px]">
               <div className="flex flex-wrap items-center gap-3 text-slate-400">
@@ -409,71 +536,198 @@ export default function QuakeIntensityPanel({
                   </b>
                 </span>
               </div>
-              <span className="text-[10px] text-slate-500">
-                {en
-                  ? `Synthetic accelerogram (~${waveform.durationSec.toFixed(0)} s)`
-                  : `Acelerograma sintético (~${waveform.durationSec.toFixed(0)} s)`}
-              </span>
+              <div className="flex items-center gap-1 rounded-lg border border-slate-800 bg-slate-950/80 p-0.5 text-[10px]">
+                <button
+                  type="button"
+                  onClick={() => setWaveTab("waves")}
+                  className={`rounded-md px-2 py-0.5 font-medium transition ${
+                    waveTab === "waves"
+                      ? "bg-sky-500/20 text-sky-300"
+                      : "text-slate-400 hover:text-slate-200"
+                  }`}
+                >
+                  {en ? "P/S Seismogram" : "Sismograma P/S"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setWaveTab("spectrum")}
+                  className={`rounded-md px-2 py-0.5 font-medium transition ${
+                    waveTab === "spectrum"
+                      ? "bg-amber-500/20 text-amber-300"
+                      : "text-slate-400 hover:text-slate-200"
+                  }`}
+                >
+                  {en ? "Spectrum Sa(T) · Buildings" : "Espectro Sa(T) · Edificios"}
+                </button>
+              </div>
             </div>
-            <svg
-              viewBox="0 0 520 52"
-              className="h-12 w-full overflow-visible"
-              role="img"
-              aria-label={
-                en ? "Synthetic seismic waveform" : "Traza sísmica sintética"
-              }
-            >
-              <line
-                x1={0}
-                y1={26}
-                x2={520}
-                y2={26}
-                stroke="#1e293b"
-                strokeDasharray="2 2"
-              />
-              <line
-                x1={waveform.pRatio * 520}
-                y1={2}
-                x2={waveform.pRatio * 520}
-                y2={50}
-                stroke="#38bdf8"
-                strokeWidth={1}
-                strokeDasharray="3 2"
-              />
-              <text
-                x={waveform.pRatio * 520 + 4}
-                y={11}
-                fill="#38bdf8"
-                fontSize="9"
-                fontFamily="ui-monospace, monospace"
+
+            {waveTab === "waves" ? (
+              <svg
+                viewBox="0 0 520 52"
+                className="h-12 w-full overflow-visible"
+                role="img"
+                aria-label={
+                  en ? "Synthetic seismic waveform" : "Traza sísmica sintética"
+                }
               >
-                P
-              </text>
-              <line
-                x1={waveform.sRatio * 520}
-                y1={2}
-                x2={waveform.sRatio * 520}
-                y2={50}
-                stroke="#f59e0b"
-                strokeWidth={1}
-                strokeDasharray="3 2"
-              />
-              <text
-                x={waveform.sRatio * 520 + 4}
-                y={11}
-                fill="#f59e0b"
-                fontSize="9"
-                fontFamily="ui-monospace, monospace"
-              >
-                S
-              </text>
-              <path
-                d={waveformPath}
-                fill="none"
-                stroke={mmiColor(customMmi)}
-                strokeWidth={1.5}
-              />
-            </svg>
+                <line
+                  x1={0}
+                  y1={26}
+                  x2={520}
+                  y2={26}
+                  stroke="#1e293b"
+                  strokeDasharray="2 2"
+                />
+                <line
+                  x1={waveform.pRatio * 520}
+                  y1={2}
+                  x2={waveform.pRatio * 520}
+                  y2={50}
+                  stroke="#38bdf8"
+                  strokeWidth={1}
+                  strokeDasharray="3 2"
+                />
+                <text
+                  x={waveform.pRatio * 520 + 4}
+                  y={11}
+                  fill="#38bdf8"
+                  fontSize="9"
+                  fontFamily="ui-monospace, monospace"
+                >
+                  P
+                </text>
+                <line
+                  x1={waveform.sRatio * 520}
+                  y1={2}
+                  x2={waveform.sRatio * 520}
+                  y2={50}
+                  stroke="#f59e0b"
+                  strokeWidth={1}
+                  strokeDasharray="3 2"
+                />
+                <text
+                  x={waveform.sRatio * 520 + 4}
+                  y={11}
+                  fill="#f59e0b"
+                  fontSize="9"
+                  fontFamily="ui-monospace, monospace"
+                >
+                  S
+                </text>
+                <path
+                  d={waveformPath}
+                  fill="none"
+                  stroke={mmiColor(customMmi)}
+                  strokeWidth={1.5}
+                />
+              </svg>
+            ) : (
+              <div className="space-y-1.5">
+                <svg
+                  viewBox="0 0 520 56"
+                  className="h-14 w-full overflow-visible"
+                  role="img"
+                  aria-label={
+                    en
+                      ? "5%-damped elastic response spectrum Sa(T)"
+                      : "Espectro de respuesta elástico Sa(T) al 5%"
+                  }
+                >
+                  <line
+                    x1={0}
+                    y1={50}
+                    x2={520}
+                    y2={50}
+                    stroke="#1e293b"
+                    strokeWidth={1}
+                  />
+                  {[0.5, 1.0, 1.5, 2.0, 2.5].map((tSec) => {
+                    const x = (tSec / 3.0) * 520;
+                    return (
+                      <g key={tSec}>
+                        <line
+                          x1={x}
+                          y1={6}
+                          x2={x}
+                          y2={50}
+                          stroke="#1e293b"
+                          strokeDasharray="2 2"
+                        />
+                        <text
+                          x={x - 8}
+                          y={55}
+                          fill="#64748b"
+                          fontSize="8"
+                          fontFamily="ui-monospace, monospace"
+                        >
+                          {tSec.toFixed(1)}s
+                        </text>
+                      </g>
+                    );
+                  })}
+                  <line
+                    x1={spectrumPaths.tsX}
+                    y1={4}
+                    x2={spectrumPaths.tsX}
+                    y2={50}
+                    stroke="#f59e0b"
+                    strokeDasharray="3 2"
+                  />
+                  <text
+                    x={spectrumPaths.tsX + 3}
+                    y={12}
+                    fill="#f59e0b"
+                    fontSize="8"
+                    fontFamily="ui-monospace, monospace"
+                  >
+                    Ts={spectrum.tsSec.toFixed(2)}s
+                  </text>
+                  {siteId !== "rock" && (
+                    <path
+                      d={spectrumPaths.rockPath}
+                      fill="none"
+                      stroke="#64748b"
+                      strokeWidth={1.2}
+                      strokeDasharray="3 2"
+                    />
+                  )}
+                  <path
+                    d={spectrumPaths.sitePath}
+                    fill="none"
+                    stroke={mmiColor(customMmi)}
+                    strokeWidth={2}
+                  />
+                </svg>
+                <div className="flex flex-wrap items-center justify-between gap-2 text-[10px] text-slate-400">
+                  <div className="flex flex-wrap gap-3 font-mono">
+                    <span>
+                      {en ? "1–3 stories (0.2s):" : "1–3 pisos (0.2s):"}{" "}
+                      <b className="text-slate-200">
+                        {(spectrum.resonance.lowRiseG * 100).toFixed(1)}% g
+                      </b>
+                    </span>
+                    <span>
+                      {en ? "5–10 stories (0.75s):" : "5–10 pisos (0.75s):"}{" "}
+                      <b className="text-slate-200">
+                        {(spectrum.resonance.midRiseG * 100).toFixed(1)}% g
+                      </b>
+                    </span>
+                    <span>
+                      {en ? "12–20+ stories (1.6s):" : "12–20+ pisos (1.6s):"}{" "}
+                      <b className="text-slate-200">
+                        {(spectrum.resonance.highRiseG * 100).toFixed(1)}% g
+                      </b>
+                    </span>
+                  </div>
+                  <span className="text-amber-300">
+                    {en
+                      ? spectrum.resonance.vulnerableClassEn
+                      : spectrum.resonance.vulnerableClassEs}
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 

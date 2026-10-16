@@ -1,4 +1,13 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip as RTooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import type { Quake } from "../types";
 import {
   SAMPLE_QUERIES,
@@ -102,6 +111,33 @@ export default function Warehouse({
   const [result, setResult] = useState<QueryResult | null>(null);
   const [queryError, setQueryError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
+  const [viewMode, setViewMode] = useState<"both" | "table" | "chart">("both");
+  const [chartYCol, setChartYCol] = useState<string>("");
+
+  const chartSpec = useMemo(() => {
+    if (!result || result.rows.length < 2 || result.columns.length < 2) {
+      return null;
+    }
+    const sample = result.rows[0];
+    const numericCols = result.columns.filter(
+      (c) => typeof sample[c] === "number",
+    );
+    if (numericCols.length === 0) return null;
+    const nonNumCols = result.columns.filter(
+      (c) => typeof sample[c] !== "number",
+    );
+    const xCol = nonNumCols[0] ?? result.columns[0];
+    const yCandidates = numericCols.filter((c) => c !== xCol);
+    const yCol =
+      yCandidates.find((c) => c === chartYCol) ??
+      yCandidates[0] ??
+      numericCols[0];
+    const data = result.rows.slice(0, 25).map((r) => ({
+      x: String(r[xCol] ?? "—").slice(0, 24),
+      y: Number(r[yCol] ?? 0),
+    }));
+    return { xCol, yCol, numericCols: yCandidates.length ? yCandidates : numericCols, data };
+  }, [result, chartYCol]);
 
   const build = useCallback(async () => {
     if (!quakes.length) return;
@@ -362,40 +398,125 @@ export default function Warehouse({
         )}
 
         {result && stats && (
-          <div className="mt-3 space-y-2">
-            <div className="max-h-[420px] overflow-auto rounded-xl border border-ink-800">
-              <table className="w-full border-collapse text-xs">
-                <thead className="sticky top-0 bg-ink-900">
-                  <tr>
-                    {result.columns.map((c) => (
-                      <th
-                        key={c}
-                        className="whitespace-nowrap px-3 py-2 text-left font-mono text-[11px] uppercase tracking-wider text-slate-500"
-                      >
-                        {c}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {result.rows.map((row, i) => (
-                    <tr
-                      key={i}
-                      className="border-t border-ink-800/70 hover:bg-ink-900/60"
+          <div className="mt-3 space-y-3">
+            {chartSpec && (
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                <div className="flex items-center gap-1 rounded-lg border border-ink-800 bg-ink-950/80 p-0.5 text-[11px]">
+                  {(
+                    [
+                      ["both", en ? "Table + Chart" : "Tabla + Gráfico"],
+                      ["table", en ? "Table only" : "Solo tabla"],
+                      ["chart", en ? "Chart only" : "Solo gráfico"],
+                    ] as const
+                  ).map(([id, label]) => (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => setViewMode(id)}
+                      className={`rounded-md px-2.5 py-1 font-medium transition ${
+                        viewMode === id
+                          ? "bg-sky-500/20 text-sky-300"
+                          : "text-slate-400 hover:text-slate-200"
+                      }`}
                     >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                {viewMode !== "table" && chartSpec.numericCols.length > 1 && (
+                  <label className="flex items-center gap-1.5 text-[11px] text-slate-400">
+                    <span>{en ? "Metric (Y):" : "Métrica (Y):"}</span>
+                    <select
+                      value={chartSpec.yCol}
+                      onChange={(e) => setChartYCol(e.target.value)}
+                      className="rounded-lg border border-ink-700 bg-ink-900 px-2 py-1 font-mono text-xs text-slate-200"
+                    >
+                      {chartSpec.numericCols.map((c) => (
+                        <option key={c} value={c}>
+                          {c}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+              </div>
+            )}
+
+            {chartSpec && viewMode !== "table" && (
+              <div className="rounded-xl border border-ink-800 bg-ink-950/50 p-3">
+                <p className="mb-2 font-mono text-[11px] text-slate-400">
+                  📊 {chartSpec.yCol} {en ? "by" : "por"} {chartSpec.xCol} (top{" "}
+                  {chartSpec.data.length})
+                </p>
+                <div className="h-56">
+                  <ResponsiveContainer>
+                    <BarChart
+                      data={chartSpec.data}
+                      margin={{ top: 6, right: 12, bottom: 8, left: 0 }}
+                    >
+                      <CartesianGrid stroke="#1e293b" strokeDasharray="3 3" />
+                      <XAxis
+                        dataKey="x"
+                        stroke="#475569"
+                        fontSize={10}
+                        interval="preserveStartEnd"
+                      />
+                      <YAxis stroke="#475569" fontSize={10} />
+                      <RTooltip
+                        contentStyle={{
+                          background: "#101a2c",
+                          border: "1px solid #1f3050",
+                          borderRadius: 10,
+                          fontSize: 12,
+                          color: "#e2e8f0",
+                        }}
+                        formatter={(v: unknown) => [
+                          fmtNum(Number(v), 2, locale),
+                          chartSpec.yCol,
+                        ]}
+                      />
+                      <Bar dataKey="y" fill="#38bdf8" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            )}
+
+            {viewMode !== "chart" && (
+              <div className="max-h-[420px] overflow-auto rounded-xl border border-ink-800">
+                <table className="w-full border-collapse text-xs">
+                  <thead className="sticky top-0 bg-ink-900">
+                    <tr>
                       {result.columns.map((c) => (
-                        <td
+                        <th
                           key={c}
-                          className="whitespace-nowrap px-3 py-1.5 font-mono text-slate-300"
+                          className="whitespace-nowrap px-3 py-2 text-left font-mono text-[11px] uppercase tracking-wider text-slate-500"
                         >
-                          {formatCell(row[c])}
-                        </td>
+                          {c}
+                        </th>
                       ))}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {result.rows.map((row, i) => (
+                      <tr
+                        key={i}
+                        className="border-t border-ink-800/70 hover:bg-ink-900/60"
+                      >
+                        {result.columns.map((c) => (
+                          <td
+                            key={c}
+                            className="whitespace-nowrap px-3 py-1.5 font-mono text-slate-300"
+                          >
+                            {formatCell(row[c])}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
             <p className="text-[11px] text-slate-500">
               {result.rows.length} filas en {result.ms.toFixed(0)} ms
               {result.truncated && " · resultado recortado a 500 filas"}

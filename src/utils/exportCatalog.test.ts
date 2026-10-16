@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { Quake } from "../types";
-import { quakesToCsv, quakesToGeoJson } from "./exportCatalog";
+import { FAMOUS_QUAKES } from "../data/famousQuakes";
+import {
+  parseUserCatalog,
+  quakesToCsv,
+  quakesToGeoJson,
+  quakesToQuakeMl,
+} from "./exportCatalog";
 
 const sampleQuakes: Quake[] = [
   {
@@ -55,3 +61,37 @@ describe("quakesToGeoJson", () => {
     ]);
   });
 });
+
+describe("quakesToQuakeMl y parseUserCatalog", () => {
+  it("exporta QuakeML 1.2 válido con profundidad en metros y lo re-importa sin pérdidas", () => {
+    const xml = quakesToQuakeMl(sampleQuakes);
+    expect(xml).toContain("<q:quakeml");
+    expect(xml).toContain("<depth><value>35000</value></depth>");
+    expect(xml).toContain("&quot;Lakatoro&quot;");
+
+    const reimported = parseUserCatalog(xml);
+    expect(reimported).toHaveLength(1);
+    expect(reimported[0].mag).toBeCloseTo(6.2, 2);
+    expect(reimported[0].depth).toBeCloseTo(35, 2);
+    expect(reimported[0].lat).toBeCloseTo(-16.1, 2);
+  });
+
+  it("importa catálogos propios desde CSV y GeoJSON (round-trip)", () => {
+    const fromCsv = parseUserCatalog(quakesToCsv(sampleQuakes));
+    expect(fromCsv).toHaveLength(1);
+    expect(fromCsv[0].id).toBe("USGS:us6000test");
+    expect(fromCsv[0].mag).toBeCloseTo(6.2, 2);
+    expect(fromCsv[0].place).toContain('7 km E of "Lakatoro"');
+
+    const fromGeoJson = parseUserCatalog(quakesToGeoJson(sampleQuakes));
+    expect(fromGeoJson).toHaveLength(1);
+    expect(fromGeoJson[0].id).toBe("USGS:us6000test");
+    expect(fromGeoJson[0].tsunami).toBe(true);
+  });
+
+  it("contiene el catálogo curado de grandes terremotos históricos", () => {
+    expect(FAMOUS_QUAKES.length).toBeGreaterThanOrEqual(8);
+    expect(FAMOUS_QUAKES[0].mag).toBe(9.5);
+  });
+});
+

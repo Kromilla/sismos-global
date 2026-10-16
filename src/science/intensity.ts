@@ -346,6 +346,8 @@ export interface TectonicRegimeInfo {
   labelEn: string;
   mechanismEs: string;
   mechanismEn: string;
+  /** Rumbo (strike), buzamiento (dip) y deslizamiento (rake) representativos en grados. */
+  nodalPlane: { strike: number; dip: number; rake: number };
 }
 
 /**
@@ -364,6 +366,7 @@ export function inferTectonicRegime(quake: {
       labelEn: "Subduction interplate / thrust",
       mechanismEs: "Falla inversa (cabalgamiento)",
       mechanismEn: "Reverse / megathrust fault",
+      nodalPlane: { strike: 15, dip: 22, rake: 90 },
     };
   }
   if (quake.depth < 40) {
@@ -373,6 +376,7 @@ export function inferTectonicRegime(quake: {
       labelEn: "Shallow crustal",
       mechanismEs: "Transcurrente / cortical mixto",
       mechanismEn: "Strike-slip / mixed crustal",
+      nodalPlane: { strike: 45, dip: 85, rake: 175 },
     };
   }
   if (quake.depth <= 300) {
@@ -382,6 +386,7 @@ export function inferTectonicRegime(quake: {
       labelEn: "Subducted slab intraplate (Wadati–Benioff)",
       mechanismEs: "Extensión / tracción de losa (normal)",
       mechanismEn: "Slab-pull extension (normal)",
+      nodalPlane: { strike: 180, dip: 50, rake: -90 },
     };
   }
   return {
@@ -390,6 +395,133 @@ export function inferTectonicRegime(quake: {
     labelEn: "Deep mantle transition zone (>300 km)",
     mechanismEs: "Transformación de fase / compresión profunda",
     mechanismEn: "Phase transformation / deep slab compression",
+    nodalPlane: { strike: 0, dip: 45, rake: -90 },
+  };
+}
+
+export interface SpectralPoint {
+  periodSec: number;
+  saG: number;
+  storiesApprox: number;
+}
+
+export interface BuildingResonance {
+  lowRiseG: number;
+  midRiseG: number;
+  highRiseG: number;
+  peakPeriodSec: number;
+  peakSaG: number;
+  vulnerableClassEs: string;
+  vulnerableClassEn: string;
+}
+
+export interface ResponseSpectrum {
+  points: SpectralPoint[];
+  t0Sec: number;
+  tsSec: number;
+  pgaG: number;
+  sdsG: number;
+  sd1G: number;
+  resonance: BuildingResonance;
+}
+
+const SITE_FACTORS: Record<SiteClassId, { fa: number; fv: number }> = {
+  rock: { fa: 1.0, fv: 1.0 },
+  stiff: { fa: 1.2, fv: 1.5 },
+  soft: { fa: 1.45, fv: 2.0 },
+  lacustrine: { fa: 1.75, fv: 2.8 },
+};
+
+const SPECTRUM_PERIODS = [
+  0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.4, 0.5, 0.6, 0.75, 0.9, 1.0, 1.2, 1.4,
+  1.6, 1.8, 2.0, 2.25, 2.5, 2.75, 3.0,
+];
+
+/**
+ * Construye el espectro de respuesta elástico (5% de amortiguamiento crítico)
+ * Sa(T) en unidades de g, estilo NEHRP / ASCE 7 / NSR-10, modulando los factores
+ * de sitio Fa y Fv por Vs30 y el enriquecimiento de periodos largos por magnitud.
+ */
+export function buildResponseSpectrum(
+  mag: number,
+  rhypoKm: number,
+  siteId: SiteClassId = "rock",
+  ipe: (m: number, r: number) => number = mmiAllen2012,
+): ResponseSpectrum {
+  const mmiRock = ipe(mag, Math.max(1, rhypoKm));
+  const pgaRockG = pgaToG(mmiToPga(mmiRock));
+  const { fa, fv } = SITE_FACTORS[siteId] ?? SITE_FACTORS.rock;
+
+  // Los sismos de gran magnitud (Mw > 6.5) enriquecen el contenido de periodo largo (T >= 1 s).
+  const magLongFactor = clamp(0.65 + 0.22 * (mag - 5.5), 0.45, 1.65);
+
+  const pgaG = pgaRockG * fa;
+  const sdsG = 2.5 * pgaRockG * fa;
+  const sd1G = 1.05 * pgaRockG * fv * magLongFactor;
+
+  const tsSec = clamp(sd1G / Math.max(sdsG, 1e-6), 0.28, 1.85);
+  const t0Sec = 0.2 * tsSec;
+
+  const points: SpectralPoint[] = SPECTRUM_PERIODS.map((t) => {
+    let saG: number;
+    if (t <= 1e-6) {
+      saG = pgaG;
+    } else if (t < t0Sec) {
+      saG = pgaG + (sdsG - pgaG) * (t / t0Sec);
+    } else if (t <= tsSec) {
+      saG = sdsG;
+    } else {
+      saG = sd1G / t;
+    }
+    return {
+      periodSec: t,
+      saG,
+      storiesApprox: Math.max(1, Math.round(t * 10)),
+    };
+  });
+
+  const saAt = (targetT: number) => {
+    if (targetT <= t0Sec) {
+      return pgaG + (sdsG - pgaG) * (targetT / Math.max(t0Sec, 1e-4));
+    }
+    if (targetT <= tsSec) return sdsG;
+    return sd1G / targetT;
+  };
+
+  const lowRiseG = saAt(0.2); // ~1–3 pisos (T ≈ 0.2 s)
+  const midRiseG = saAt(0.75); // ~5–10 pisos (T ≈ 0.75 s)
+  const highRiseG = saAt(1.6); // ~12–20+ pisos (T ≈ 1.6 s)
+
+  const shiftsToMidHigh = tsSec >= 0.65;
+  const vulnerableClassEs =
+    siteId === "lacustrine"
+      ? "Edificios medianos y altos (7–20 pisos, T ≈ 0.7–1.8 s) por resonancia de cuenca"
+      : shiftsToMidHigh
+        ? "Pórticos de mediana altura (4–12 pisos, T ≈ 0.4–1.1 s)"
+        : "Mampostería rígida y baja altura (1–3 pisos, T ≈ 0.1–0.3 s)";
+  const vulnerableClassEn =
+    siteId === "lacustrine"
+      ? "Mid- to high-rise buildings (7–20 stories, T ≈ 0.7–1.8 s) due to basin resonance"
+      : shiftsToMidHigh
+        ? "Mid-rise frames (4–12 stories, T ≈ 0.4–1.1 s)"
+        : "Stiff low-rise masonry (1–3 stories, T ≈ 0.1–0.3 s)";
+
+  return {
+    points,
+    t0Sec,
+    tsSec,
+    pgaG,
+    sdsG,
+    sd1G,
+    resonance: {
+      lowRiseG,
+      midRiseG,
+      highRiseG,
+      peakPeriodSec: Number(((t0Sec + tsSec) / 2).toFixed(2)),
+      peakSaG: sdsG,
+      vulnerableClassEs,
+      vulnerableClassEn,
+    },
   };
 }
 
