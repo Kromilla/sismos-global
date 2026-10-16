@@ -3,6 +3,7 @@ import { Card, Note, Stat } from "./ui";
 import { tntTons } from "../science/stats";
 import { fmtNum, magColor } from "../ui/format";
 import { mmiAtkinsonWald, mmiColor, mmiRoman } from "../science/intensity";
+import { localeFor, type Lang } from "../i18n/shell";
 
 const PLATES = [
   {
@@ -63,7 +64,9 @@ const MYTHS = [
   },
 ];
 
-export default function Learn() {
+export default function Learn({ lang = "es" }: { lang?: Lang }) {
+  const en = lang === "en";
+  const locale = localeFor(lang);
   const [sp, setSp] = useState(12);
   const [mag, setMag] = useState(6.5);
   const [dist, setDist] = useState(50);
@@ -75,8 +78,16 @@ export default function Learn() {
     <div className="space-y-4">
       <div className="grid gap-4 lg:grid-cols-2">
         <Card
-          title="Por qué tiembla en Latinoamérica"
-          subtitle="El Cinturón de Fuego pasa por casa"
+          title={
+            en
+              ? "Why the Earth shakes in the Americas & Ring of Fire"
+              : "Por qué tiembla en Latinoamérica"
+          }
+          subtitle={
+            en
+              ? "Tectonic plate convergence and major active boundaries"
+              : "El Cinturón de Fuego pasa por casa"
+          }
         >
           <div className="space-y-2">
             {PLATES.map((p) => (
@@ -179,19 +190,27 @@ export default function Learn() {
         </label>
         <div className="mt-3 grid gap-3 sm:grid-cols-3">
           <Stat
-            label="Energía equivalente"
-            value={`${fmtNum(tntTons(mag) / 1000, 1)} kt`}
-            hint="Kilotones de TNT (Hiroshima ≈ 15 kt)"
+            label={en ? "Equivalent energy" : "Energía equivalente"}
+            value={`${fmtNum(tntTons(mag) / 1000, 1, locale)} kt`}
+            hint={
+              en
+                ? "Kilotons of TNT (Hiroshima ≈ 15 kt)"
+                : "Kilotones de TNT (Hiroshima ≈ 15 kt)"
+            }
             accent="#f43f5e"
           />
           <Stat
-            label="Equivale a"
-            value={`${fmtNum(10 ** (1.5 * (mag - 5)), 0)} sismos M5`}
-            hint="Cada punto de magnitud multiplica la energía por 32"
+            label={en ? "Equals" : "Equivale a"}
+            value={`${fmtNum(10 ** (1.5 * (mag - 5)), 0, locale)} ${en ? "M5 quakes" : "sismos M5"}`}
+            hint={
+              en
+                ? "Each magnitude step multiplies energy by 32"
+                : "Cada punto de magnitud multiplica la energía por 32"
+            }
           />
           <Stat
-            label="Ruptura típica"
-            value={`≈ ${fmtNum(10 ** (0.59 * mag - 2.44), 0)} km de falla`}
+            label={en ? "Typical rupture" : "Ruptura típica"}
+            value={`≈ ${fmtNum(10 ** (0.59 * mag - 2.44), 0, locale)} ${en ? "km fault" : "km de falla"}`}
             hint="Relación empírica de Wells & Coppersmith (1994)"
             accent="#facc15"
           />

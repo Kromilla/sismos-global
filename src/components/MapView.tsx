@@ -3,6 +3,7 @@ import {
   CircleMarker,
   MapContainer,
   Marker,
+  Polyline,
   Popup,
   Rectangle,
   TileLayer,
@@ -16,6 +17,8 @@ import "leaflet.heat";
 import type { Quake } from "../types";
 import { ALL_REGIONS } from "../data/regions";
 import { CITIES } from "../data/cities";
+import { PLATE_BOUNDARIES } from "../data/plates";
+import type { Lang } from "../i18n/shell";
 import {
   depthColor,
   fmtAgo,
@@ -46,6 +49,7 @@ interface Props {
   colorBy?: "mag" | "depth";
   showHeat?: boolean;
   showRegions?: boolean;
+  showPlates?: boolean;
   showCities?: boolean;
   selectedRegionId?: string | null;
   onSelectRegion?: (id: string | null) => void;
@@ -59,6 +63,7 @@ interface Props {
   echo?: boolean;
   /** Instante de referencia (epoch ms) para evitar lecturas impuras en render. */
   now?: number;
+  lang?: Lang;
 }
 
 function HeatLayer({ quakes, enabled }: { quakes: Quake[]; enabled: boolean }) {
@@ -129,6 +134,7 @@ export default function MapView({
   colorBy = "mag",
   showHeat = false,
   showRegions = false,
+  showPlates = false,
   showCities = false,
   selectedRegionId = null,
   onSelectRegion,
@@ -140,6 +146,7 @@ export default function MapView({
   className = "",
   echo = true,
   now: nowProp,
+  lang = "es",
 }: Props) {
   const [zoom, setZoom] = useState(2);
   const [fallbackNow] = useState(() => Date.now());
@@ -194,6 +201,37 @@ export default function MapView({
         <ClickHandler onMapClick={onMapClick} />
         <Focus focus={focus} />
         <HeatLayer quakes={quakes} enabled={showHeat} />
+
+        {showPlates &&
+          PLATE_BOUNDARIES.map((plate) => {
+            const color =
+              plate.kind === "subduction"
+                ? "#f97316"
+                : plate.kind === "transform"
+                  ? "#a855f7"
+                  : plate.kind === "collision"
+                    ? "#facc15"
+                    : "#38bdf8";
+            return (
+              <Polyline
+                key={plate.id}
+                positions={plate.coordinates}
+                pathOptions={{
+                  color,
+                  weight: 2,
+                  opacity: 0.75,
+                  dashArray: plate.kind === "ridge" ? "5 5" : undefined,
+                }}
+              >
+                <Tooltip sticky>
+                  <span className="font-semibold">
+                    {lang === "en" ? plate.nameEn : plate.name}
+                  </span>{" "}
+                  · ~{plate.rateMmYr} {lang === "en" ? "mm/yr" : "mm/año"}
+                </Tooltip>
+              </Polyline>
+            );
+          })}
 
         {showRegions &&
           ALL_REGIONS.map((r) => {
@@ -250,14 +288,19 @@ export default function MapView({
                   </div>
                   <div className="text-slate-200">{q.place}</div>
                   <div className="text-slate-400">
-                    {fmtDateTime(q.time)} · {fmtAgo(q.time, now)}
+                    {fmtDateTime(q.time)} · {fmtAgo(q.time, now, lang)}
                   </div>
                   <div className="text-slate-400">
-                    Profundidad {q.depth.toFixed(0)} km · {q.lat.toFixed(2)},{" "}
+                    {lang === "en" ? "Depth" : "Profundidad"}{" "}
+                    {q.depth.toFixed(0)} km · {q.lat.toFixed(2)},{" "}
                     {q.lon.toFixed(2)}
                   </div>
                   {q.tsunami && (
-                    <div className="text-amber-300">Con aviso de tsunami</div>
+                    <div className="text-amber-300">
+                      {lang === "en"
+                        ? "Tsunami warning"
+                        : "Con aviso de tsunami"}
+                    </div>
                   )}
                   <div className="flex items-center gap-3 pt-1">
                     {onIntensity && (
@@ -266,7 +309,7 @@ export default function MapView({
                         onClick={() => onIntensity(q)}
                         className="rounded border border-sky-500/40 bg-sky-500/10 px-2 py-0.5 text-xs font-medium text-sky-300 transition hover:bg-sky-500/20"
                       >
-                        Impacto MMI
+                        {lang === "en" ? "MMI impact" : "Impacto MMI"}
                       </button>
                     )}
                     <a
@@ -275,7 +318,7 @@ export default function MapView({
                       target="_blank"
                       rel="noreferrer"
                     >
-                      Ficha {q.source ?? "USGS"}
+                      {lang === "en" ? "Source" : "Ficha"} {q.source ?? "USGS"}
                     </a>
                   </div>
                 </div>
@@ -356,9 +399,9 @@ export default function MapView({
 
       {hidden > 0 && (
         <div className="pointer-events-none absolute bottom-2 left-2 z-[1000] rounded-lg border border-ink-700 bg-ink-950/85 px-2.5 py-1.5 text-[11px] text-slate-400">
-          Se dibujan los {MAX_MARKERS.toLocaleString("es-CO")} de mayor magnitud
-          · {hidden.toLocaleString("es-CO")} ocultos. Sube la magnitud mínima o
-          enfoca una zona.
+          {lang === "en"
+            ? `Showing top ${MAX_MARKERS.toLocaleString("en-US")} by magnitude · ${hidden.toLocaleString("en-US")} hidden. Raise min magnitude or focus on a zone.`
+            : `Se dibujan los ${MAX_MARKERS.toLocaleString("es-CO")} de mayor magnitud · ${hidden.toLocaleString("es-CO")} ocultos. Sube la magnitud mínima o enfoca una zona.`}
         </div>
       )}
     </div>

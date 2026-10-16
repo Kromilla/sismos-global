@@ -268,3 +268,127 @@ export function wellsCoppersmithLength(mag: number): number {
   if (mag < 5.0) return 0;
   return 10 ** (-2.44 + 0.59 * mag);
 }
+
+/**
+ * Momento sísmico escalar M0 en N·m según Hanks & Kanamori (1979):
+ * log10(M0 [N·m]) = 1.5 * Mw + 9.05
+ */
+export function seismicMomentNm(mag: number): number {
+  return 10 ** (1.5 * mag + 9.05);
+}
+
+export type SiteClassId = "rock" | "stiff" | "soft" | "lacustrine";
+
+export interface SiteClass {
+  id: SiteClassId;
+  name: string;
+  nameEn: string;
+  vs30: number;
+  /** Amplificación aditiva en unidades de MMI respecto a roca de referencia (760 m/s). */
+  deltaMmi: number;
+  description: string;
+  descriptionEn: string;
+}
+
+/**
+ * Clases de suelo NEHRP basadas en Vs30 y amplificación empírica (Borcherdt 1994 / Worden et al. 2012).
+ */
+export const SITE_CLASSES: Record<SiteClassId, SiteClass> = {
+  rock: {
+    id: "rock",
+    name: "Roca firme (NEHRP B · Vs30 ≈ 760 m/s)",
+    nameEn: "Firm rock (NEHRP B · Vs30 ≈ 760 m/s)",
+    vs30: 760,
+    deltaMmi: 0,
+    description: "Referencia sin amplificación por sitio.",
+    descriptionEn: "Reference rock condition without site amplification.",
+  },
+  stiff: {
+    id: "stiff",
+    name: "Suelo rígido (NEHRP C · Vs30 ≈ 450 m/s)",
+    nameEn: "Stiff soil (NEHRP C · Vs30 ≈ 450 m/s)",
+    vs30: 450,
+    deltaMmi: 0.35,
+    description: "Gravas densas o roca blanda meteorizada (+0.35 MMI).",
+    descriptionEn: "Dense gravel or weathered soft rock (+0.35 MMI).",
+  },
+  soft: {
+    id: "soft",
+    name: "Suelo blando (NEHRP D · Vs30 ≈ 250 m/s)",
+    nameEn: "Soft soil (NEHRP D · Vs30 ≈ 250 m/s)",
+    vs30: 250,
+    deltaMmi: 0.75,
+    description: "Sedimentos aluviales profundos (+0.75 MMI).",
+    descriptionEn: "Deep alluvial sediments (+0.75 MMI).",
+  },
+  lacustrine: {
+    id: "lacustrine",
+    name: "Arcilla lacustre (NEHRP E · Vs30 ≈ 150 m/s)",
+    nameEn: "Lacustrine clay (NEHRP E · Vs30 ≈ 150 m/s)",
+    vs30: 150,
+    deltaMmi: 1.25,
+    description: "Cuencas lacustres blandas como Bogotá o CDMX (+1.25 MMI).",
+    descriptionEn: "Very soft lacustrine basins like Bogotá or Mexico City (+1.25 MMI).",
+  },
+};
+
+export const SITE_CLASSES_LIST: SiteClass[] = Object.values(SITE_CLASSES);
+
+export function siteClassById(id: SiteClassId): SiteClass {
+  return SITE_CLASSES[id] ?? SITE_CLASSES.rock;
+}
+
+export type FocalStyle = "thrust" | "normal" | "strike-slip" | "intraslab";
+
+export interface TectonicRegimeInfo {
+  style: FocalStyle;
+  labelEs: string;
+  labelEn: string;
+  mechanismEs: string;
+  mechanismEn: string;
+}
+
+/**
+ * Infiere el régimen tectónico y el estilo focal dominante a partir de la
+ * profundidad hipocentral, magnitud e indicador de tsunami.
+ */
+export function inferTectonicRegime(quake: {
+  mag: number;
+  depth: number;
+  tsunami?: boolean;
+}): TectonicRegimeInfo {
+  if (quake.depth < 60 && (quake.tsunami || quake.mag >= 6.8)) {
+    return {
+      style: "thrust",
+      labelEs: "Interplaca de subducción / compresivo",
+      labelEn: "Subduction interplate / thrust",
+      mechanismEs: "Falla inversa (cabalgamiento)",
+      mechanismEn: "Reverse / megathrust fault",
+    };
+  }
+  if (quake.depth < 40) {
+    return {
+      style: "strike-slip",
+      labelEs: "Cortical superficial",
+      labelEn: "Shallow crustal",
+      mechanismEs: "Transcurrente / cortical mixto",
+      mechanismEn: "Strike-slip / mixed crustal",
+    };
+  }
+  if (quake.depth <= 300) {
+    return {
+      style: "intraslab",
+      labelEs: "Intraplaca de losa subducida (Wadati–Benioff)",
+      labelEn: "Subducted slab intraplate (Wadati–Benioff)",
+      mechanismEs: "Extensión / tracción de losa (normal)",
+      mechanismEn: "Slab-pull extension (normal)",
+    };
+  }
+  return {
+    style: "normal",
+    labelEs: "Manto de transición profundo (>300 km)",
+    labelEn: "Deep mantle transition zone (>300 km)",
+    mechanismEs: "Transformación de fase / compresión profunda",
+    mechanismEn: "Phase transformation / deep slab compression",
+  };
+}

@@ -19,7 +19,12 @@ export function depthColor(depthKm: number): string {
   return "#60a5fa";
 }
 
-export function depthLabel(depthKm: number): string {
+export function depthLabel(depthKm: number, lang: "es" | "en" = "es"): string {
+  if (lang === "en") {
+    if (depthKm < 70) return "shallow";
+    if (depthKm < 300) return "intermediate";
+    return "deep";
+  }
   if (depthKm < 70) return "superficial";
   if (depthKm < 300) return "intermedia";
   return "profunda";
@@ -116,8 +121,17 @@ export function probColor(p: number): string {
   return "#dc2626";
 }
 
-export function fmtYears(y: number): string {
+export function fmtYears(y: number, lang: "es" | "en" = "es"): string {
   if (!Number.isFinite(y)) return "—";
+  if (lang === "en") {
+    if (y >= 1000) return `${Math.round(y / 100) / 10}k yr`;
+    if (y >= 1) return y < 2 ? "1 yr" : `${Math.round(y)} yr`;
+    const days = y * 365.25;
+    if (days < 1) return `${Math.round(days * 24)} h`;
+    if (days < 45) return `${Math.round(days)} days`;
+    const months = Math.round(y * 12);
+    return months <= 1 ? "1 mo" : `${months} mo`;
+  }
   if (y >= 1000) return `${Math.round(y / 100) / 10} mil años`;
   if (y >= 1) return y < 2 ? "1 año" : `${Math.round(y)} años`;
   const days = y * 365.25;

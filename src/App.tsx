@@ -16,14 +16,25 @@ import {
 } from "./data/regions";
 import { useCatalog } from "./hooks/useCatalog";
 import { useShareableState } from "./hooks/useShareableState";
-import MapView from "./components/MapView";
+import { useGeolocation } from "./hooks/useGeolocation";
+import { playAlertChime, useAlerts } from "./hooks/useAlerts";
+import MapView, { type Ring } from "./components/MapView";
 import EventsTable from "./components/EventsTable";
 import QuakeIntensityPanel from "./components/QuakeIntensityPanel";
 import { Badge, Note, Spinner, buttonClass, inputClass } from "./components/ui";
 import { DAY_MS } from "./science/stats";
 import {
+  DEFAULT_IPE,
+  IPE_MODELS,
+  mmiColor,
+  mmiLevel,
+  mmiRoman,
+  radiusForMmi,
+} from "./science/intensity";
+import {
   MAG_CLASSES,
   fmtAgo,
+  fmtDateTime,
   fmtNum,
   magClass,
   magClassLabel,
@@ -119,6 +130,7 @@ export default function App() {
   const [colorBy, setColorBy] = useState<"mag" | "depth">("mag");
   const [showHeat, setShowHeat] = useState(false);
   const [showRegions, setShowRegions] = useState(false);
+  const [showPlates, setShowPlates] = useState(false);
   const [histStartYear, setHistStartYear] = useState(1990);
   const [histMinMag, setHistMinMag] = useState(MIN_MAG_MUNDO);
   const [catalogSource, setCatalogSource] = useState<CatalogSource>("USGS");
@@ -130,9 +142,16 @@ export default function App() {
   const [clasesOcultas, setClasesOcultas] = useState<number[]>([]);
   const [decada, setDecada] = useState<number | null>(null);
   const [intensityQuake, setIntensityQuake] = useState<Quake | null>(null);
+  const [ringQuake, setRingQuake] = useState<Quake | null>(null);
+  const [showAlertsMenu, setShowAlertsMenu] = useState(false);
+  const [tlPlaying, setTlPlaying] = useState(false);
+  const [tlProgress, setTlProgress] = useState(100);
+  const [tlSpeed, setTlSpeed] = useState<1 | 5 | 20>(5);
   const [shareStatus, setShareStatus] = useState<"idle" | "ok" | "fail">(
     "idle",
   );
+
+  const geo = useGeolocation();
 
   useEffect(() => {
     persistLang(lang);
@@ -147,6 +166,21 @@ export default function App() {
     const id = window.setInterval(() => setNow(Date.now()), AUTO_REFRESH_MS);
     return () => window.clearInterval(id);
   }, [autoRefresh]);
+
+  useEffect(() => {
+    if (!tlPlaying) return;
+    const id = window.setInterval(() => {
+      setTlProgress((prev) => {
+        const next = prev + 0.4 * tlSpeed;
+        if (next >= 100) {
+          setTlPlaying(false);
+          return 100;
+        }
+        return next;
+      });
+    }, 80);
+    return () => window.clearInterval(id);
+  }, [tlPlaying, tlSpeed]);
 
   const applyFromUrl = useCallback((params: URLSearchParams) => {
     const langParam = params.get("lang");
@@ -183,6 +217,7 @@ export default function App() {
 
     if (params.get("heat") === "1") setShowHeat(true);
     if (params.get("zones") === "1") setShowRegions(true);
+    if (params.get("plates") === "1") setShowPlates(true);
     if (params.get("tsunami") === "1") setOnlyTsunami(true);
     if (params.get("felt") === "1") setOnlyFelt(true);
   }, []);
@@ -200,6 +235,7 @@ export default function App() {
       color: colorBy === "mag" ? "" : colorBy,
       heat: showHeat ? "1" : "",
       zones: showRegions ? "1" : "",
+      plates: showPlates ? "1" : "",
       tsunami: onlyTsunami ? "1" : "",
       felt: onlyFelt ? "1" : "",
     }),
@@ -215,6 +251,7 @@ export default function App() {
       colorBy,
       showHeat,
       showRegions,
+      showPlates,
       onlyTsunami,
       onlyFelt,
     ],
@@ -256,6 +293,7 @@ export default function App() {
 
   const live = useCatalog(liveQuery, 10 * 60 * 1000, catalogSource);
   const hist = useCatalog(histQuery, 24 * 60 * 60 * 1000, catalogSource);
+  const alerts = useAlerts(live.quakes, lang);
 
   const needsHistory = tab === "analisis" || needsWorld;
   const active = needsHistory ? hist : source === "reciente" ? live : hist;
@@ -290,6 +328,40 @@ export default function App() {
     clasesOcultas,
     decada,
   ]);
+
+  const timeBounds = useMemo(() => {
+    if (filtered.length === 0) return { minT: now - DAY_MS, maxT: now };
+    let minT = Infinity;
+    let maxT = -Infinity;
+    for (const q of filtered) {
+      if (q.time < minT) minT = q.time;
+      if (q.time > maxT) maxT = q.time;
+    }
+    return { minT, maxT };
+  }, [filtered, now]);
+
+  const tlCutoff =
+    timeBounds.minT +
+    ((timeBounds.maxT - timeBounds.minT) * Math.min(100, tlProgress)) / 100;
+
+  const mapQuakes = useMemo(() => {
+    if (tlProgress >= 99.9 && !tlPlaying) return filtered;
+    return filtered.filter((q) => q.time <= tlCutoff);
+  }, [filtered, tlProgress, tlPlaying, tlCutoff]);
+
+  const mapRings = useMemo<Ring[]>(() => {
+    if (!ringQuake) return [];
+    const mmiFn = IPE_MODELS[DEFAULT_IPE].mmi;
+    return [8, 7, 6, 5, 4]
+      .map((target) => ({
+        lat: ringQuake.lat,
+        lon: ringQuake.lon,
+        radiusKm: radiusForMmi(ringQuake.mag, target, ringQuake.depth, mmiFn),
+        color: mmiColor(target),
+        label: `MMI ${mmiRoman(target)} — ${mmiLevel(target).label}`,
+      }))
+      .filter((r) => r.radiusKm > 2);
+  }, [ringQuake]);
 
   /** Décadas con eventos en el catálogo actual, de la más reciente a la más antigua. */
   const decadas = useMemo(() => {
@@ -334,6 +406,21 @@ export default function App() {
   const focusOn = (q: Quake) => {
     setFocus({ lat: q.lat, lon: q.lon, zoom: 8 });
     setTab("mapa");
+  };
+
+  const showRingsOnMap = (q: Quake) => {
+    setRingQuake(q);
+    setFocus({ lat: q.lat, lon: q.lon, zoom: 6 });
+    setTab("mapa");
+  };
+
+  const onNearMe = () => {
+    if (geo.coords) {
+      setFocus({ lat: geo.coords.lat, lon: geo.coords.lon, zoom: 6 });
+      setTab("mapa");
+    } else {
+      geo.request();
+    }
   };
 
   const onExportCsv = () => {
@@ -431,6 +518,112 @@ export default function App() {
               }`}
             />
             {t.autoRefresh}
+          </button>
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setShowAlertsMenu((v) => !v)}
+              className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition ${
+                alerts.settings.enabled
+                  ? "border-amber-500/40 bg-amber-500/10 text-amber-300"
+                  : "border-ink-700 bg-ink-800 text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              🔔 {t.alerts}
+              {alerts.settings.enabled && (
+                <span className="font-mono text-[10px]">
+                  ≥{alerts.settings.minMag.toFixed(1)}
+                </span>
+              )}
+            </button>
+            {showAlertsMenu && (
+              <div className="absolute right-0 top-full z-[1200] mt-2 w-72 rounded-xl border border-ink-700 bg-ink-900 p-3 shadow-2xl space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-slate-200">
+                    {t.alerts}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowAlertsMenu(false)}
+                    className="text-xs text-slate-500 hover:text-slate-200"
+                  >
+                    ✕
+                  </button>
+                </div>
+                <label className="flex items-center justify-between text-xs text-slate-300">
+                  <span>{lang === "en" ? "Enable alerts" : "Activar alertas"}</span>
+                  <input
+                    type="checkbox"
+                    checked={alerts.settings.enabled}
+                    onChange={(e) =>
+                      alerts.update({ enabled: e.target.checked })
+                    }
+                    className="accent-sky-500"
+                  />
+                </label>
+                <label className="block text-xs text-slate-400">
+                  <div className="flex justify-between">
+                    <span>{t.minMag}</span>
+                    <b className="font-mono text-slate-200">
+                      M≥{alerts.settings.minMag.toFixed(1)}
+                    </b>
+                  </div>
+                  <input
+                    type="range"
+                    min={4}
+                    max={7.5}
+                    step={0.5}
+                    value={alerts.settings.minMag}
+                    onChange={(e) =>
+                      alerts.update({ minMag: Number(e.target.value) })
+                    }
+                    className="mt-1 w-full accent-sky-500"
+                  />
+                </label>
+                <label className="flex items-center justify-between text-xs text-slate-300">
+                  <span>{t.alertsSound}</span>
+                  <input
+                    type="checkbox"
+                    checked={alerts.settings.sound}
+                    onChange={(e) => alerts.update({ sound: e.target.checked })}
+                    className="accent-sky-500"
+                  />
+                </label>
+                <div className="flex items-center justify-between gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => playAlertChime(6)}
+                    className="rounded-lg border border-ink-700 bg-ink-800 px-2.5 py-1 text-[11px] text-slate-300 hover:text-white"
+                  >
+                    🔊 {t.alertsTest}
+                  </button>
+                  {"Notification" in window &&
+                    Notification.permission !== "granted" && (
+                      <button
+                        type="button"
+                        onClick={() => void alerts.requestPermission()}
+                        className="rounded-lg border border-sky-500/40 bg-sky-500/10 px-2.5 py-1 text-[11px] text-sky-300 hover:bg-sky-500/20"
+                      >
+                        {lang === "en"
+                          ? "Allow notifications"
+                          : "Permitir avisos"}
+                      </button>
+                    )}
+                </div>
+              </div>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={onNearMe}
+            title={t.nearMe}
+            className={`rounded-lg border px-2.5 py-1.5 text-xs font-medium transition ${
+              geo.coords
+                ? "border-sky-500/40 bg-sky-500/10 text-sky-300"
+                : "border-ink-700 bg-ink-800 text-slate-300 hover:text-white"
+            }`}
+          >
+            📍 {geo.loading ? "…" : t.nearMe}
           </button>
           <label className="flex flex-col gap-1">
             <span className="text-[11px] uppercase tracking-wider text-slate-500">
@@ -633,6 +826,15 @@ export default function App() {
                 />
                 {t.zones}
               </label>
+              <label className="flex items-center gap-2 pb-1.5 text-xs text-slate-400">
+                <input
+                  type="checkbox"
+                  checked={showPlates}
+                  onChange={(e) => setShowPlates(e.target.checked)}
+                  className="accent-sky-500"
+                />
+                {t.plates}
+              </label>
             </>
           )}
           <div className="ml-auto flex items-center gap-1.5 pb-0.5">
@@ -772,21 +974,132 @@ export default function App() {
         </Note>
       ))}
 
+      {alerts.lastTriggered && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-2.5 text-xs text-amber-200">
+          <span>
+            🔔{" "}
+            <b>
+              M{alerts.lastTriggered.mag.toFixed(1)} ·{" "}
+              {alerts.lastTriggered.place}
+            </b>{" "}
+            · {fmtDateTime(alerts.lastTriggered.time, locale)}
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => focusOn(alerts.lastTriggered!)}
+              className="rounded-md border border-amber-400/40 bg-amber-400/10 px-2 py-0.5 text-amber-200 hover:bg-amber-400/20"
+            >
+              {lang === "en" ? "View on map" : "Ver en mapa"}
+            </button>
+            <button
+              type="button"
+              onClick={alerts.dismissLast}
+              className="text-amber-300 hover:text-white"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
+
       <main className="pb-8">
         {tab === "mapa" && (
           <div className="space-y-3">
             <MapView
-              quakes={filtered}
+              quakes={mapQuakes}
               colorBy={colorBy}
               showHeat={showHeat}
               showRegions={showRegions}
+              showPlates={showPlates}
+              rings={mapRings}
+              marker={
+                geo.coords
+                  ? {
+                      lat: geo.coords.lat,
+                      lon: geo.coords.lon,
+                      label: lang === "en" ? "My location" : "Mi ubicación",
+                    }
+                  : null
+              }
               selectedRegionId={regionId || null}
               onSelectRegion={(id) => selectRegion(id ?? "")}
               onIntensity={setIntensityQuake}
               focus={focus}
               now={now}
+              lang={lang}
               className="h-[calc(100vh-320px)] min-h-[420px]"
             />
+
+            {/* Barra de reproducción Time-lapse e isosistas activas */}
+            <div className="flex flex-wrap items-center gap-3 rounded-xl border border-ink-800 bg-ink-900/50 px-3 py-2 text-xs">
+              <span className="text-[11px] uppercase tracking-wider text-slate-500">
+                {t.timelapse}
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  if (tlPlaying) {
+                    setTlPlaying(false);
+                  } else {
+                    if (tlProgress >= 99.9) setTlProgress(0);
+                    setTlPlaying(true);
+                  }
+                }}
+                className="rounded-lg border border-sky-500/40 bg-sky-500/10 px-2.5 py-1 font-medium text-sky-300 transition hover:bg-sky-500/20"
+              >
+                {tlPlaying ? `⏸ ${t.pause}` : `▶ ${t.play}`}
+              </button>
+              <select
+                value={tlSpeed}
+                onChange={(e) =>
+                  setTlSpeed(Number(e.target.value) as 1 | 5 | 20)
+                }
+                className="rounded-lg border border-ink-700 bg-ink-900 px-2 py-1 text-xs text-slate-300"
+                aria-label="Speed"
+              >
+                <option value={1}>1×</option>
+                <option value={5}>5×</option>
+                <option value={20}>20×</option>
+              </select>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                step={0.5}
+                value={tlProgress}
+                onChange={(e) => {
+                  setTlPlaying(false);
+                  setTlProgress(Number(e.target.value));
+                }}
+                className="min-w-[160px] flex-1 accent-sky-500"
+              />
+              <span className="font-mono text-[11px] text-slate-400">
+                {fmtDateTime(tlCutoff, locale)} ({nl(mapQuakes.length)}/
+                {nl(filtered.length)})
+              </span>
+              {tlProgress < 99.9 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTlPlaying(false);
+                    setTlProgress(100);
+                  }}
+                  className="text-slate-400 underline hover:text-slate-200"
+                >
+                  100%
+                </button>
+              )}
+              {ringQuake && (
+                <button
+                  type="button"
+                  onClick={() => setRingQuake(null)}
+                  className="ml-auto rounded-lg border border-amber-500/40 bg-amber-500/10 px-2.5 py-1 text-xs text-amber-300 hover:bg-amber-500/20"
+                >
+                  ◎ {t.clearSelectedQuake} (M{ringQuake.mag.toFixed(1)})
+                </button>
+              )}
+            </div>
             {decadas.length > 1 && (
               <div className="flex flex-wrap items-center gap-1.5 text-xs">
                 <span className="mr-1 text-[11px] uppercase tracking-wider text-slate-500">
@@ -897,6 +1210,7 @@ export default function App() {
             onFocus={focusOn}
             onIntensity={setIntensityQuake}
             now={now}
+            lang={lang}
           />
         )}
 
@@ -906,12 +1220,22 @@ export default function App() {
               quakes={filtered}
               onFocus={focusOn}
               onIntensity={setIntensityQuake}
+              lang={lang}
             />
           )}
-          {tab === "pronostico" && <Forecast quakes={hist.quakes} now={now} />}
-          {tab === "intensidad" && <Hazard quakes={hist.quakes} />}
-          {tab === "almacen" && <Warehouse quakes={hist.quakes} />}
-          {tab === "aprender" && <Learn />}
+          {tab === "pronostico" && (
+            <Forecast quakes={hist.quakes} now={now} lang={lang} />
+          )}
+          {tab === "intensidad" && (
+            <Hazard
+              quakes={hist.quakes}
+              lang={lang}
+              userLocation={geo.coords}
+              onRequestLocation={geo.request}
+            />
+          )}
+          {tab === "almacen" && <Warehouse quakes={hist.quakes} lang={lang} />}
+          {tab === "aprender" && <Learn lang={lang} />}
         </Suspense>
       </main>
 
@@ -923,6 +1247,9 @@ export default function App() {
           quake={intensityQuake}
           onClose={() => setIntensityQuake(null)}
           onFocus={focusOn}
+          onShowRings={showRingsOnMap}
+          userLocation={geo.coords}
+          lang={lang}
         />
       )}
     </div>

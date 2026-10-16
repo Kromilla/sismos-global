@@ -1,0 +1,19 @@
+{
+  "name": "Sismos Global — Catálogo, Análisis y Pronóstico Sísmico",
+  "short_name": "Sismos Global",
+  "description": "Catálogo sísmico mundial en el navegador con modelos Gutenberg–Richter, ETAS, PSHA y almacén SQL DuckDB.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#070b14",
+  "theme_color": "#070b14",
+  "lang": "es",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

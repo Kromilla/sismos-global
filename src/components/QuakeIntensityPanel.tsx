@@ -4,17 +4,24 @@ import { CITIES } from "../data/cities";
 import {
   DEFAULT_IPE,
   IPE_MODELS,
+  SITE_CLASSES,
   hypocentralKm,
+  inferTectonicRegime,
   mmiColor,
   mmiLevel,
   mmiRoman,
   mmiToPga,
   pgaToG,
   radiusForMmi,
+  seismicMomentNm,
+  siteClassById,
   wellsCoppersmithLength,
+  type SiteClassId,
 } from "../science/intensity";
 import { fmtEnergy, haversineKm, tntTons } from "../science/stats";
 import { fmtDateTime, fmtNum, magColor } from "../ui/format";
+import { localeFor, type Lang } from "../i18n/shell";
+import { downloadQuakeCardPng } from "../utils/quakeCardPng";
 
 interface ImpactRow {
   city: (typeof CITIES)[number];
@@ -30,15 +37,25 @@ interface Props {
   quake: Quake;
   onClose: () => void;
   onFocus?: (q: Quake) => void;
+  onShowRings?: (q: Quake) => void;
+  userLocation?: { lat: number; lon: number } | null;
+  lang?: Lang;
 }
 
 export default function QuakeIntensityPanel({
   quake,
   onClose,
   onFocus,
+  onShowRings,
+  userLocation = null,
+  lang = "es",
 }: Props) {
+  const en = lang === "en";
+  const locale = localeFor(lang);
   const ipe = IPE_MODELS[DEFAULT_IPE];
   const [customDistKm, setCustomDistKm] = useState(50);
+  const [siteId, setSiteId] = useState<SiteClassId>("rock");
+  const site = siteClassById(siteId);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -53,7 +70,8 @@ export default function QuakeIntensityPanel({
     return CITIES.map((city) => {
       const distKm = haversineKm(quake.lat, quake.lon, city.lat, city.lon);
       const rhypoKm = hypocentralKm(distKm, quake.depth);
-      const mmi = ipe.mmi(quake.mag, rhypoKm);
+      const rawMmi = ipe.mmi(quake.mag, rhypoKm) + site.deltaMmi;
+      const mmi = Math.max(1, Math.min(12, rawMmi));
       const pgaPctG = pgaToG(mmiToPga(mmi)) * 100;
       const nearRupture = quake.mag >= 7.0 && distKm < srl / 2;
       return {
@@ -68,20 +86,44 @@ export default function QuakeIntensityPanel({
     })
       .filter((r) => r.mmi >= 2)
       .sort((a, b) => b.mmi - a.mmi);
-  }, [quake, ipe]);
+  }, [quake, ipe, site.deltaMmi]);
+
+  const mmiFnWithSite = useMemo(
+    () => (mag: number, rhypoKm: number) =>
+      Math.max(1, Math.min(12, ipe.mmi(mag, rhypoKm) + site.deltaMmi)),
+    [ipe, site.deltaMmi],
+  );
 
   /** Radios de isosistas para mostrar en el subtítulo. */
-  const iso6km = radiusForMmi(quake.mag, 6, quake.depth, ipe.mmi);
-  const iso5km = radiusForMmi(quake.mag, 5, quake.depth, ipe.mmi);
+  const iso6km = radiusForMmi(quake.mag, 6, quake.depth, mmiFnWithSite);
+  const iso5km = radiusForMmi(quake.mag, 5, quake.depth, mmiFnWithSite);
 
-  const epicentralMmi = ipe.mmi(quake.mag, hypocentralKm(0, quake.depth));
+  const epicentralMmi = mmiFnWithSite(quake.mag, hypocentralKm(0, quake.depth));
   const maxMmi = Math.max(rows[0]?.mmi ?? 0, epicentralMmi);
 
   const customRhypo = hypocentralKm(customDistKm, quake.depth);
-  const customMmi = ipe.mmi(quake.mag, customRhypo);
+  const customMmi = mmiFnWithSite(quake.mag, customRhypo);
   const customPgaPctG = pgaToG(mmiToPga(customMmi)) * 100;
   const customLvl = mmiLevel(customMmi);
   const srlKm = wellsCoppersmithLength(quake.mag);
+  const m0 = seismicMomentNm(quake.mag);
+  const m0Exp = Math.floor(Math.log10(m0));
+  const m0Mantissa = m0 / 10 ** m0Exp;
+  const regime = inferTectonicRegime(quake);
+
+  const userImpact = useMemo(() => {
+    if (!userLocation) return null;
+    const distKm = haversineKm(
+      quake.lat,
+      quake.lon,
+      userLocation.lat,
+      userLocation.lon,
+    );
+    const rhypoKm = hypocentralKm(distKm, quake.depth);
+    const mmi = mmiFnWithSite(quake.mag, rhypoKm);
+    const pgaPctG = pgaToG(mmiToPga(mmi)) * 100;
+    return { distKm, mmi, pgaPctG, label: mmiLevel(mmi).label };
+  }, [userLocation, quake, mmiFnWithSite]);
 
   return (
     /* Overlay */
@@ -115,7 +157,7 @@ export default function QuakeIntensityPanel({
             </p>
             <div className="mt-2 flex flex-wrap gap-3 text-[11px] text-slate-400">
               <span>
-                Intensidad máxima estimada:{" "}
+                {en ? "Max est. intensity:" : "Intensidad máxima estimada:"}{" "}
                 <b
                   className="rounded px-1.5 py-0.5 text-slate-950"
                   style={{ background: mmiColor(maxMmi) }}
@@ -125,31 +167,43 @@ export default function QuakeIntensityPanel({
               </span>
               {iso6km > 2 && (
                 <span>
-                  Radio MMI VI ≈{" "}
+                  {en ? "Radius MMI VI ≈" : "Radio MMI VI ≈"}{" "}
                   <b className="text-slate-200">{iso6km.toFixed(0)} km</b>
                 </span>
               )}
               {iso5km > 2 && (
                 <span>
-                  Radio MMI V ≈{" "}
+                  {en ? "Radius MMI V ≈" : "Radio MMI V ≈"}{" "}
                   <b className="text-slate-200">{iso5km.toFixed(0)} km</b>
                 </span>
               )}
               <span>
-                Energía:{" "}
+                {en ? "Energy:" : "Energía:"}{" "}
                 <b className="font-mono text-slate-200">
                   {fmtEnergy(quake.mag)}
                 </b>{" "}
-                ({fmtNum(tntTons(quake.mag) / 1000, 1)} kt TNT)
+                ({fmtNum(tntTons(quake.mag) / 1000, 1, locale)} kt TNT)
+              </span>
+              <span>
+                M₀:{" "}
+                <b className="font-mono text-slate-200">
+                  {m0Mantissa.toFixed(1)}×10^{m0Exp} N·m
+                </b>
               </span>
               {srlKm >= 1 && (
                 <span>
-                  Ruptura est.:{" "}
+                  {en ? "Est. rupture:" : "Ruptura est.:"}{" "}
                   <b className="font-mono text-slate-200">
                     ≈ {srlKm.toFixed(0)} km
                   </b>
                 </span>
               )}
+              <span title={en ? regime.mechanismEn : regime.mechanismEs}>
+                {en ? "Regime:" : "Régimen:"}{" "}
+                <b className="text-sky-300">
+                  {en ? regime.labelEn : regime.labelEs}
+                </b>
+              </span>
             </div>
             <div className="mt-2.5 flex flex-wrap items-center gap-2 text-xs">
               {onFocus && (
@@ -161,35 +215,115 @@ export default function QuakeIntensityPanel({
                   }}
                   className="rounded-lg border border-sky-500/40 bg-sky-500/10 px-2.5 py-1 text-xs font-medium text-sky-300 transition hover:bg-sky-500/20"
                 >
-                  Enfocar en el mapa
+                  {en ? "Focus on map" : "Enfocar en el mapa"}
                 </button>
               )}
+              {onShowRings && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onShowRings(quake);
+                    onClose();
+                  }}
+                  className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-300 transition hover:bg-amber-500/20"
+                >
+                  ◎ {en ? "Map isoseismals" : "Isosistas en el mapa"}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() =>
+                  downloadQuakeCardPng(
+                    quake,
+                    rows.map((r) => ({
+                      name: r.city.name,
+                      country: r.city.country,
+                      distKm: r.distKm,
+                      mmi: r.mmi,
+                      pgaPctG: r.pgaPctG,
+                    })),
+                    maxMmi,
+                    en ? site.nameEn : site.name,
+                    lang,
+                  )
+                }
+                className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-300 transition hover:bg-emerald-500/20"
+              >
+                ↓ {en ? "Download PNG card" : "Descargar tarjeta PNG"}
+              </button>
               <a
                 href={quake.url}
                 target="_blank"
                 rel="noreferrer"
                 className="rounded-lg border border-slate-700 bg-slate-800/80 px-2.5 py-1 text-xs text-slate-300 transition hover:border-slate-600 hover:text-white"
               >
-                Ficha oficial ({quake.source ?? "USGS"}) ↗
+                {en ? "Official page" : "Ficha oficial"} (
+                {quake.source ?? "USGS"}) ↗
               </a>
             </div>
           </div>
           <button
             onClick={onClose}
             className="shrink-0 rounded-lg p-1.5 text-slate-500 hover:bg-slate-800 hover:text-slate-200 transition"
-            aria-label="Cerrar"
-            title="Cerrar (Esc)"
+            aria-label={en ? "Close" : "Cerrar"}
+            title={en ? "Close (Esc)" : "Cerrar (Esc)"}
           >
             ✕
           </button>
         </div>
 
-        {/* Calculadora rápida de distancia */}
-        <div className="border-b border-slate-800 bg-slate-950/60 px-5 py-3">
+        {/* Impacto en la ubicación del usuario (si está activa) */}
+        {userImpact && (
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 bg-sky-500/10 px-5 py-2.5 text-xs">
+            <span className="text-sky-200">
+              📍 {en ? "At your location" : "En tu ubicación"}:{" "}
+              <b className="font-mono">{userImpact.distKm.toFixed(0)} km</b>{" "}
+              {en ? "from epicenter" : "del epicentro"}
+            </span>
+            <div className="flex items-center gap-2">
+              <span
+                className="rounded px-2 py-0.5 font-mono text-xs font-bold text-slate-950"
+                style={{ background: mmiColor(userImpact.mmi) }}
+              >
+                MMI {mmiRoman(userImpact.mmi)}
+              </span>
+              <span className="font-mono text-sky-300">
+                {userImpact.pgaPctG < 1
+                  ? `${userImpact.pgaPctG.toFixed(2)}% g`
+                  : `${userImpact.pgaPctG.toFixed(1)}% g`}
+              </span>
+              <span className="text-slate-300">{userImpact.label}</span>
+            </div>
+          </div>
+        )}
+
+        {/* Calculadora rápida de distancia + selector de suelo Vs30 */}
+        <div className="border-b border-slate-800 bg-slate-950/60 px-5 py-3 space-y-2.5">
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+            <label className="flex items-center gap-2">
+              <span className="text-[11px] uppercase tracking-wider text-slate-400">
+                {en ? "Soil (Vs30):" : "Suelo (Vs30):"}
+              </span>
+              <select
+                value={siteId}
+                onChange={(e) => setSiteId(e.target.value as SiteClassId)}
+                className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200"
+              >
+                {Object.values(SITE_CLASSES).map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {en ? s.nameEn : s.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <span className="text-[11px] text-slate-500">
+              {en ? site.descriptionEn : site.description}
+            </span>
+          </div>
           <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
             <label className="flex flex-1 items-center gap-3 min-w-[220px]">
               <span className="whitespace-nowrap text-[11px] uppercase tracking-wider text-slate-400">
-                Simular a{" "}
+                {en ? "Simulate at" : "Simular a"}{" "}
                 <b className="font-mono text-slate-100">{customDistKm} km</b>:
               </span>
               <input

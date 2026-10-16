@@ -72,6 +72,20 @@ export interface ShellCopy {
   byDepth: string;
   heatMap: string;
   zones: string;
+  plates: string;
+  nearMe: string;
+  locating: string;
+  alerts: string;
+  alertsTitle: string;
+  alertsEnable: string;
+  alertsSound: string;
+  alertsTest: string;
+  alertsBrowser: string;
+  timelapse: string;
+  play: string;
+  pause: string;
+  resetTimelapse: string;
+  clearSelectedQuake: string;
   catalogFrom: string;
   network: string;
   networkGroups: {
@@ -151,6 +165,20 @@ const es: ShellCopy = {
   byDepth: "Por profundidad",
   heatMap: "Mapa de calor",
   zones: "Zonas",
+  plates: "Placas tectónicas",
+  nearMe: "Cerca de mí",
+  locating: "Ubicando…",
+  alerts: "Alertas",
+  alertsTitle: "Alertas sísmicas en vivo",
+  alertsEnable: "Activar alertas de nuevos sismos",
+  alertsSound: "Aviso sonoro",
+  alertsTest: "Probar sonido",
+  alertsBrowser: "Notificación del navegador",
+  timelapse: "Secuencia temporal",
+  play: "▶ Reproducir",
+  pause: "⏸ Pausar",
+  resetTimelapse: "Ver todo",
+  clearSelectedQuake: "Quitar isosistas",
   catalogFrom: "Catálogo desde",
   network: "Red",
   networkGroups: {
@@ -252,6 +280,20 @@ const en: ShellCopy = {
   byDepth: "By depth",
   heatMap: "Heat map",
   zones: "Zones",
+  plates: "Tectonic plates",
+  nearMe: "Near me",
+  locating: "Locating…",
+  alerts: "Alerts",
+  alertsTitle: "Live seismic alerts",
+  alertsEnable: "Enable new earthquake alerts",
+  alertsSound: "Sound chime",
+  alertsTest: "Test sound",
+  alertsBrowser: "Browser notification",
+  timelapse: "Time-lapse",
+  play: "▶ Play",
+  pause: "⏸ Pause",
+  resetTimelapse: "Show all",
+  clearSelectedQuake: "Clear isoseismals",
   catalogFrom: "Catalog from",
   network: "Network",
   networkGroups: {

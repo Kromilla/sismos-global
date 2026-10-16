@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import type { Quake } from "../types";
+import type { Lang } from "../i18n/shell";
 import { Badge, Empty, buttonClass } from "./ui";
 import { depthLabel, fmtAgo, fmtDateTime, magColor } from "../ui/format";
 import { fmtEnergy } from "../science/stats";
@@ -11,15 +12,18 @@ export default function EventsTable({
   onFocus,
   onIntensity,
   now,
+  lang = "es",
 }: {
   quakes: Quake[];
   onFocus?: (q: Quake) => void;
   onIntensity?: (q: Quake) => void;
   now?: number;
+  lang?: Lang;
 }) {
   const [sort, setSort] = useState<SortKey>("time");
   const [asc, setAsc] = useState(false);
   const [limit, setLimit] = useState(100);
+  const en = lang === "en";
 
   const toggleSort = (key: SortKey) => {
     if (sort === key) {
@@ -41,7 +45,13 @@ export default function EventsTable({
   }, [quakes, sort, asc, limit]);
 
   if (!quakes.length)
-    return <Empty>Ningún sismo cumple los filtros actuales.</Empty>;
+    return (
+      <Empty>
+        {en
+          ? "No earthquakes match the current filters."
+          : "Ningún sismo cumple los filtros actuales."}
+      </Empty>
+    );
 
   const th = (key: SortKey, label: string) => (
     <th
@@ -66,12 +76,12 @@ export default function EventsTable({
             <tr>
               {th("mag", "Mag")}
               <th className="px-3 py-2 text-left font-medium text-slate-500">
-                Lugar
+                {en ? "Place" : "Lugar"}
               </th>
-              {th("time", "Fecha")}
-              {th("depth", "Prof.")}
+              {th("time", en ? "Date (UTC)" : "Fecha")}
+              {th("depth", en ? "Depth" : "Prof.")}
               <th className="px-3 py-2 text-left font-medium text-slate-500">
-                Energía
+                {en ? "Energy" : "Energía"}
               </th>
               <th className="px-3 py-2" />
             </tr>
@@ -106,13 +116,13 @@ export default function EventsTable({
                 <td className="whitespace-nowrap px-3 py-2 text-slate-400">
                   {fmtDateTime(q.time)}
                   <span className="ml-2 text-[11px] text-slate-600">
-                    {fmtAgo(q.time, now)}
+                    {fmtAgo(q.time, now, lang)}
                   </span>
                 </td>
                 <td className="whitespace-nowrap px-3 py-2 font-mono text-slate-300">
                   {q.depth.toFixed(0)} km
                   <span className="ml-1 text-[11px] text-slate-600">
-                    {depthLabel(q.depth)}
+                    {depthLabel(q.depth, lang)}
                   </span>
                 </td>
                 <td className="whitespace-nowrap px-3 py-2 font-mono text-slate-400">
@@ -124,12 +134,16 @@ export default function EventsTable({
                       className={buttonClass}
                       onClick={() => onFocus?.(q)}
                     >
-                      Ver
+                      {en ? "Map" : "Ver"}
                     </button>
                     <button
                       className={buttonClass}
                       onClick={() => onIntensity?.(q)}
-                      title="Intensidad MMI estimada por ciudad"
+                      title={
+                        en
+                          ? "Estimated MMI intensity by city"
+                          : "Intensidad MMI estimada por ciudad"
+                      }
                     >
                       MMI
                     </button>
@@ -142,15 +156,16 @@ export default function EventsTable({
       </div>
       <div className="flex items-center justify-between text-xs text-slate-500">
         <span>
-          Mostrando {rows.length} de {quakes.length.toLocaleString("es-CO")}{" "}
-          eventos
+          {en
+            ? `Showing ${rows.length} of ${quakes.length.toLocaleString("en-US")} events`
+            : `Mostrando ${rows.length} de ${quakes.length.toLocaleString("es-CO")} eventos`}
         </span>
         {limit < quakes.length && (
           <button
             className={buttonClass}
             onClick={() => setLimit((l) => l + 200)}
           >
-            Cargar más
+            {en ? "Load more" : "Cargar más"}
           </button>
         )}
       </div>

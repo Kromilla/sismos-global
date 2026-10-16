@@ -4,6 +4,7 @@ import {
   SAMPLE_QUERIES,
   buildWarehouse,
   exportCsv,
+  exportParquet,
   runQuery,
   type QueryResult,
   type WarehouseStats,
@@ -11,6 +12,7 @@ import {
 import { decluster } from "../science/declustering";
 import { Card, Note, Spinner, Stat, buttonClass, inputClass } from "./ui";
 import { fmtNum } from "../ui/format";
+import { localeFor, type Lang } from "../i18n/shell";
 
 const SCHEMA = [
   {
@@ -64,7 +66,30 @@ const SCHEMA = [
   },
 ];
 
-export default function Warehouse({ quakes }: { quakes: Quake[] }) {
+const SQL_HISTORY_KEY = "sismos-global-sql-history";
+
+function loadSqlHistory(): string[] {
+  try {
+    const raw = window.localStorage.getItem(SQL_HISTORY_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed)
+      ? parsed.filter((x): x is string => typeof x === "string").slice(0, 6)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+export default function Warehouse({
+  quakes,
+  lang = "es",
+}: {
+  quakes: Quake[];
+  lang?: Lang;
+}) {
+  const en = lang === "en";
+  const locale = localeFor(lang);
   // Guardamos contra qué catálogo se construyó: si cambia, el almacén queda obsoleto.
   const [built, setBuilt] = useState<{
     stats: WarehouseStats;
@@ -73,6 +98,7 @@ export default function Warehouse({ quakes }: { quakes: Quake[] }) {
   const [building, setBuilding] = useState(false);
   const [buildError, setBuildError] = useState<string | null>(null);
   const [sql, setSql] = useState(SAMPLE_QUERIES[0].sql);
+  const [history, setHistory] = useState<string[]>(() => loadSqlHistory());
   const [result, setResult] = useState<QueryResult | null>(null);
   const [queryError, setQueryError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
@@ -98,7 +124,23 @@ export default function Warehouse({ quakes }: { quakes: Quake[] }) {
     setRunning(true);
     setQueryError(null);
     try {
-      setResult(await runQuery(sql));
+      const res = await runQuery(sql);
+      setResult(res);
+      const trimmed = sql.trim();
+      if (trimmed) {
+        setHistory((prev) => {
+          const next = [trimmed, ...prev.filter((q) => q !== trimmed)].slice(
+            0,
+            6,
+          );
+          try {
+            window.localStorage.setItem(SQL_HISTORY_KEY, JSON.stringify(next));
+          } catch {
+            // Ignorar fallos de almacenamiento
+          }
+          return next;
+        });
+      }
     } catch (e) {
       setQueryError(e instanceof Error ? e.message : "Error en la consulta");
       setResult(null);
@@ -117,6 +159,20 @@ export default function Warehouse({ quakes }: { quakes: Quake[] }) {
     const a = document.createElement("a");
     a.href = url;
     a.download = "consulta-sismos.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [sql]);
+
+  const downloadParquet = useCallback(async () => {
+    const bytes = await exportParquet(sql);
+    const copy = new Uint8Array(bytes.byteLength);
+    copy.set(bytes);
+    const url = URL.createObjectURL(
+      new Blob([copy], { type: "application/octet-stream" }),
+    );
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "consulta-sismos.parquet";
     a.click();
     URL.revokeObjectURL(url);
   }, [sql]);
@@ -148,24 +204,28 @@ export default function Warehouse({ quakes }: { quakes: Quake[] }) {
         {stats && (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <Stat
-              label="Filas en fact_sismo"
-              value={stats.facts.toLocaleString("es-CO")}
+              label={en ? "Rows in fact_sismo" : "Filas en fact_sismo"}
+              value={stats.facts.toLocaleString(locale)}
               accent="#38bdf8"
             />
-            <Stat label="Zonas con datos" value={stats.zones} />
             <Stat
-              label="Cobertura"
+              label={en ? "Zones with data" : "Zonas con datos"}
+              value={stats.zones}
+            />
+            <Stat
+              label={en ? "Coverage" : "Cobertura"}
               value={`${stats.fromYear}–${stats.toYear}`}
             />
             <Stat
-              label="Volumen ingerido"
-              value={`${fmtNum(stats.sizeMb, 1)} MB`}
+              label={en ? "Ingested volume" : "Volumen ingerido"}
+              value={`${fmtNum(stats.sizeMb, 1, locale)} MB`}
             />
           </div>
         )}
         {!stats && !building && (
           <p className="text-xs text-slate-500">
-            {quakes.length.toLocaleString("es-CO")} eventos listos para ingerir.
+            {quakes.length.toLocaleString(locale)}{" "}
+            {en ? "events ready to ingest." : "eventos listos para ingerir."}
           </p>
         )}
       </Card>
@@ -210,8 +270,12 @@ export default function Warehouse({ quakes }: { quakes: Quake[] }) {
       </Card>
 
       <Card
-        title="Consola SQL"
-        subtitle="DuckDB completo: agregaciones, ventanas, CTEs, funciones de fecha"
+        title={en ? "SQL Console" : "Consola SQL"}
+        subtitle={
+          en
+            ? "Full DuckDB: aggregations, window functions, CTEs, date functions"
+            : "DuckDB completo: agregaciones, ventanas, CTEs, funciones de fecha"
+        }
         right={
           <div className="flex gap-2">
             <button
@@ -219,7 +283,13 @@ export default function Warehouse({ quakes }: { quakes: Quake[] }) {
               onClick={run}
               disabled={running || !stats}
             >
-              {running ? "Ejecutando…" : "Ejecutar"}
+              {running
+                ? en
+                  ? "Running…"
+                  : "Ejecutando…"
+                : en
+                  ? "Run"
+                  : "Ejecutar"}
             </button>
             <button
               className={buttonClass}
@@ -227,6 +297,18 @@ export default function Warehouse({ quakes }: { quakes: Quake[] }) {
               disabled={!result}
             >
               CSV
+            </button>
+            <button
+              className={buttonClass}
+              onClick={downloadParquet}
+              disabled={!result}
+              title={
+                en
+                  ? "Export query result as Apache Parquet"
+                  : "Exportar resultado en formato columnar Apache Parquet"
+              }
+            >
+              Parquet
             </button>
           </div>
         }
@@ -242,6 +324,24 @@ export default function Warehouse({ quakes }: { quakes: Quake[] }) {
             </button>
           ))}
         </div>
+        {history.length > 0 && (
+          <div className="mb-2 flex flex-wrap items-center gap-1.5 text-[11px]">
+            <span className="text-slate-600">
+              {en ? "Recent:" : "Recientes:"}
+            </span>
+            {history.map((h, i) => (
+              <button
+                key={i}
+                type="button"
+                onClick={() => setSql(h)}
+                title={h}
+                className="max-w-[200px] truncate rounded border border-ink-800 bg-ink-950/60 px-2 py-0.5 font-mono text-[10px] text-slate-500 hover:border-ink-700 hover:text-slate-300"
+              >
+                {h.replace(/\s+/g, " ")}
+              </button>
+            ))}
+          </div>
+        )}
         <textarea
           className={`${inputClass} h-32 w-full resize-y font-mono text-xs leading-relaxed`}
           value={sql}

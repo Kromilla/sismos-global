@@ -34,14 +34,18 @@ import {
   DEFAULT_IPE,
   IPE_MODELS,
   MMI_SCALE,
+  SITE_CLASSES,
   mmiColor,
   mmiLevel,
   mmiRoman,
   radiusForMmi,
+  siteClassById,
   type IpeId,
+  type SiteClassId,
 } from "../science/intensity";
 import { compareIpes, withObservations } from "../science/ipeValidation";
 import { fmtNum, fmtYears, magColor } from "../ui/format";
+import { localeFor, type Lang } from "../i18n/shell";
 import MapView, { type Ring } from "./MapView";
 
 /** Tope de puntos dibujados en la nube de residuales. */
@@ -57,7 +61,19 @@ const tooltipStyle = {
   color: "#e2e8f0",
 };
 
-export default function Hazard({ quakes }: { quakes: Quake[] }) {
+export default function Hazard({
+  quakes,
+  lang = "es",
+  userLocation = null,
+  onRequestLocation,
+}: {
+  quakes: Quake[];
+  lang?: Lang;
+  userLocation?: { lat: number; lon: number } | null;
+  onRequestLocation?: () => void;
+}) {
+  const en = lang === "en";
+  const locale = localeFor(lang);
   const [cityId, setCityId] = useState("santamarta");
   const [scenarioMag, setScenarioMag] = useState(7);
   const [scenarioDepth, setScenarioDepth] = useState(20);
@@ -66,9 +82,24 @@ export default function Hazard({ quakes }: { quakes: Quake[] }) {
     lon: number;
   } | null>(null);
   const [ipeId, setIpeId] = useState<IpeId>(DEFAULT_IPE);
+  const [siteId, setSiteId] = useState<SiteClassId>("rock");
   const [applyBias, setApplyBias] = useState(false);
 
-  const city = cityById(cityId) ?? CITIES[0];
+  const site = siteClassById(siteId);
+
+  const city = useMemo(() => {
+    if (cityId === "user-location" && userLocation) {
+      return {
+        id: "user-location",
+        name: en ? "My location" : "Mi ubicación",
+        country: `${userLocation.lat.toFixed(2)}°, ${userLocation.lon.toFixed(2)}°`,
+        lat: userLocation.lat,
+        lon: userLocation.lon,
+        popK: 0,
+      };
+    }
+    return cityById(cityId) ?? CITIES[0];
+  }, [cityId, userLocation, en]);
 
   const model = useMemo(() => {
     if (quakes.length < 100) return null;
@@ -100,10 +131,11 @@ export default function Hazard({ quakes }: { quakes: Quake[] }) {
     () => validation.find((v) => v.ipe === ipeId) ?? null,
     [validation, ipeId],
   );
-  // El residual es observado menos predicho, así que corregir el modelo es sumarlo.
+  // El residual es observado menos predicho, así que corregir el modelo es sumarlo,
+  // más la amplificación local por clase de suelo (Vs30).
   const bias = useMemo(
-    () => (applyBias && score ? score.bias : 0),
-    [applyBias, score],
+    () => (applyBias && score ? score.bias : 0) + site.deltaMmi,
+    [applyBias, score, site.deltaMmi],
   );
 
   const [pshaState, setPshaState] = useState<{
@@ -116,9 +148,9 @@ export default function Hazard({ quakes }: { quakes: Quake[] }) {
   const jobKey = useMemo(
     () =>
       model
-        ? `${city.id}|${ipeId}|${bias}|${model.gr.mc}|${model.gr.b}|${model.mmax}|${model.years}|${model.cluster.background.length}`
+        ? `${city.id}|${city.lat.toFixed(3)}|${city.lon.toFixed(3)}|${ipeId}|${bias}|${model.gr.mc}|${model.gr.b}|${model.mmax}|${model.years}|${model.cluster.background.length}`
         : null,
-    [model, city.id, ipeId, bias],
+    [model, city.id, city.lat, city.lon, ipeId, bias],
   );
 
   const psha = pshaState?.result ?? null;
@@ -262,23 +294,49 @@ export default function Hazard({ quakes }: { quakes: Quake[] }) {
       <div className="flex flex-wrap items-end gap-3">
         <label className="flex flex-col gap-1">
           <span className="text-[11px] uppercase tracking-wider text-slate-500">
-            Ciudad
+            {en ? "City / Site" : "Ciudad / Sitio"}
           </span>
-          <select
-            className={inputClass}
-            value={cityId}
-            onChange={(e) => setCityId(e.target.value)}
-          >
-            {CITIES.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name} — {c.country}
-              </option>
-            ))}
-          </select>
+          <div className="flex items-center gap-1.5">
+            <select
+              className={inputClass}
+              value={cityId}
+              onChange={(e) => setCityId(e.target.value)}
+            >
+              {userLocation && (
+                <option value="user-location">
+                  📍 {en ? "My location" : "Mi ubicación"} (
+                  {userLocation.lat.toFixed(2)}°, {userLocation.lon.toFixed(2)}
+                  °)
+                </option>
+              )}
+              {CITIES.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name} — {c.country}
+                </option>
+              ))}
+            </select>
+            {onRequestLocation && !userLocation && (
+              <button
+                type="button"
+                onClick={() => {
+                  onRequestLocation();
+                  setCityId("user-location");
+                }}
+                className="rounded-lg border border-sky-500/40 bg-sky-500/10 px-2.5 py-1.5 text-xs text-sky-300 transition hover:bg-sky-500/20"
+                title={
+                  en
+                    ? "Calculate seismic hazard at your GPS coordinates"
+                    : "Calcular amenaza sísmica en tus coordenadas GPS"
+                }
+              >
+                📍 {en ? "Use my GPS" : "Usar mi GPS"}
+              </button>
+            )}
+          </div>
         </label>
         <label className="flex flex-col gap-1">
           <span className="text-[11px] uppercase tracking-wider text-slate-500">
-            Ecuación de intensidad
+            {en ? "Intensity equation (IPE)" : "Ecuación de intensidad"}
           </span>
           <select
             className={inputClass}
@@ -292,6 +350,23 @@ export default function Hazard({ quakes }: { quakes: Quake[] }) {
             ))}
           </select>
         </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-[11px] uppercase tracking-wider text-slate-500">
+            {en ? "Soil / Site (Vs30)" : "Tipo de suelo (Vs30)"}
+          </span>
+          <select
+            className={inputClass}
+            value={siteId}
+            onChange={(e) => setSiteId(e.target.value as SiteClassId)}
+            title={en ? site.descriptionEn : site.description}
+          >
+            {Object.values(SITE_CLASSES).map((s) => (
+              <option key={s.id} value={s.id}>
+                {en ? s.nameEn : s.name}
+              </option>
+            ))}
+          </select>
+        </label>
         <label className="flex items-center gap-2 pb-1.5 text-xs text-slate-400">
           <input
             type="checkbox"
@@ -300,17 +375,21 @@ export default function Hazard({ quakes }: { quakes: Quake[] }) {
             disabled={!score}
             className="accent-sky-500"
           />
-          Corregir sesgo medido
+          {en ? "Correct measured bias" : "Corregir sesgo medido"}
         </label>
         <p className="pb-1.5 text-xs text-slate-500 flex items-center gap-2">
           {isComputing && (
             <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-slate-600 border-t-sky-500" />
           )}
           {isComputing
-            ? "Calculando fuentes..."
+            ? en
+              ? "Computing sources..."
+              : "Calculando fuentes..."
             : psha
-              ? `${psha.sources.toLocaleString("es-CO")} fuentes en 400 km`
-              : "Sin fuentes cercanas"}
+              ? `${psha.sources.toLocaleString(locale)} ${en ? "sources within 400 km" : "fuentes en 400 km"}`
+              : en
+                ? "No nearby sources"
+                : "Sin fuentes cercanas"}
         </p>
       </div>
 

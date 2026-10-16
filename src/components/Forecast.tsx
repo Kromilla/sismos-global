@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import ForecastWorker from "../science/forecast.worker?worker";
 import {
   Area,
   AreaChart,
@@ -10,19 +11,18 @@ import {
   YAxis,
 } from "recharts";
 import type { Quake } from "../types";
-import { ALL_REGIONS, inBbox } from "../data/regions";
+import type { Lang } from "../i18n/shell";
 import {
   FORECAST_MAGS,
   LONG_HORIZONS_YEARS,
   SHORT_HORIZONS,
   backtest,
-  buildRegionForecast,
   type RegionForecast,
 } from "../science/forecast";
 import { bathExpectation, forecastAftershocks } from "../science/omori";
 import { etasRate } from "../science/etas";
 import { DAY_MS } from "../science/stats";
-import { Card, Empty, Note, Stat, inputClass } from "./ui";
+import { Card, Empty, Note, Spinner, Stat, inputClass } from "./ui";
 import {
   fmtAgo,
   fmtDateTime,
@@ -113,9 +113,14 @@ function ActivityGauge({
 
 // ─── Gráfica de tasa ETAS en el tiempo ──────────────────────────────────────
 
-function EtasRateChart({ forecast }: { forecast: RegionForecast }) {
+function EtasRateChart({
+  forecast,
+  now,
+}: {
+  forecast: RegionForecast;
+  now: number;
+}) {
   const { etas, quakes } = forecast;
-  const now = useState(() => Date.now())[0];
   const lookbackDays = 60;
   const stepDays = 1;
 
@@ -133,8 +138,7 @@ function EtasRateChart({ forecast }: { forecast: RegionForecast }) {
       });
     }
     return points;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [etas, quakes]);
+  }, [etas, quakes, now]);
 
   const maxRate = data.length > 0 ? Math.max(...data.map((d) => d.tasa)) : 0;
   if (!etas || !maxRate || data.length < 2) return null;
@@ -240,23 +244,64 @@ function ScoreBar({ score }: { score: number }) {
 export default function Forecast({
   quakes,
   now: nowProp,
+  lang = "es",
 }: {
   quakes: Quake[];
   now?: number;
+  lang?: Lang;
 }) {
   const [regionId, setRegionId] = useState<string>("co-caribe");
   const [fallbackNow] = useState(() => Date.now());
   const now = nowProp ?? fallbackNow;
+  const en = lang === "en";
 
-  const ranking = useMemo(() => {
-    const out: RegionForecast[] = [];
-    for (const region of ALL_REGIONS) {
-      const subset = quakes.filter((q) => inBbox(q.lat, q.lon, region.bbox));
-      const f = buildRegionForecast(region, subset, now);
-      if (f) out.push(f);
-    }
-    return out.sort((a, b) => b.score - a.score);
-  }, [quakes, now]);
+  const [workerState, setWorkerState] = useState<{
+    key: string;
+    ranking: RegionForecast[];
+  } | null>(null);
+  const workerRef = useRef<Worker | null>(null);
+  const reqIdRef = useRef(0);
+
+  const jobKey = useMemo(
+    () =>
+      quakes.length >= 30
+        ? `${quakes.length}|${quakes[0]?.id ?? ""}|${now}`
+        : null,
+    [quakes, now],
+  );
+
+  useEffect(() => {
+    workerRef.current = new ForecastWorker();
+    return () => workerRef.current?.terminate();
+  }, []);
+
+  useEffect(() => {
+    if (!jobKey) return;
+    const worker = workerRef.current;
+    if (!worker) return;
+    const id = ++reqIdRef.current;
+
+    const handleMessage = (e: MessageEvent) => {
+      if (e.data.id === id) {
+        if (!e.data.error && Array.isArray(e.data.ranking)) {
+          setWorkerState({ key: jobKey, ranking: e.data.ranking });
+        }
+        worker.removeEventListener("message", handleMessage);
+      }
+    };
+    worker.addEventListener("message", handleMessage);
+    worker.postMessage({ id, quakes, now });
+
+    return () => {
+      worker.removeEventListener("message", handleMessage);
+    };
+  }, [jobKey, quakes, now]);
+
+  const isComputing = jobKey !== null && workerState?.key !== jobKey;
+  const ranking = useMemo(
+    () => (jobKey ? (workerState?.ranking ?? []) : []),
+    [jobKey, workerState],
+  );
 
   const forecast = useMemo(
     () => ranking.find((f) => f.region.id === regionId) ?? ranking[0] ?? null,
@@ -270,10 +315,26 @@ export default function Forecast({
     return backtest(subset, split);
   }, [forecast, now]);
 
+  if (isComputing && !forecast) {
+    return (
+      <div className="rounded-2xl border border-ink-800 bg-ink-900/50 p-6">
+        <Spinner
+          label={
+            en
+              ? "Calibrating ETAS, Omori and Gutenberg–Richter across 49 zones in Web Worker…"
+              : "Calibrando ETAS, Omori y Gutenberg–Richter en las 49 zonas (Web Worker)…"
+          }
+        />
+      </div>
+    );
+  }
+
   if (!forecast)
     return (
       <Empty>
-        No hay suficientes datos para pronosticar. Amplía el catálogo histórico.
+        {en
+          ? "Not enough data to forecast. Expand the historical catalog."
+          : "No hay suficientes datos para pronosticar. Amplía el catálogo histórico."}
       </Empty>
     );
 
@@ -371,7 +432,7 @@ export default function Forecast({
           mc={gr?.mc ?? 4}
         />
 
-        <EtasRateChart forecast={forecast} />
+        <EtasRateChart forecast={forecast} now={now} />
 
         <div className="mt-4 overflow-x-auto">
           <table className="w-full min-w-[420px] border-collapse text-sm">
