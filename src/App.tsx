@@ -36,6 +36,11 @@ import {
   persistLang,
   type Lang,
 } from "./i18n/shell";
+import {
+  downloadTextFile,
+  quakesToCsv,
+  quakesToGeoJson,
+} from "./utils/exportCatalog";
 
 const Analytics = lazy(() => import("./components/Analytics"));
 const Forecast = lazy(() => import("./components/Forecast"));
@@ -93,10 +98,12 @@ const HIST_START_YEARS = [1610, 1900, 1950, 1970, 1990, 2000, 2010];
  */
 const MIN_MAG_MUNDO = 5;
 const MIN_MAG_ZONA = 4.5;
+const AUTO_REFRESH_MS = 2 * 60 * 1000;
 
 export default function App() {
-  // Instante fijo del arranque: evita rehacer la consulta en cada render.
-  const [now] = useState(() => Date.now());
+  // Instante de referencia: se actualiza cuando el modo en vivo está activo.
+  const [now, setNow] = useState(() => Date.now());
+  const [autoRefresh, setAutoRefresh] = useState(true);
   const [lang, setLang] = useState<Lang>(() => detectLang());
   const t = SHELL[lang];
   const locale = localeFor(lang);
@@ -106,6 +113,9 @@ export default function App() {
   const [minMag, setMinMag] = useState(2.5);
   const [maxDepth, setMaxDepth] = useState(800);
   const [regionId, setRegionId] = useState<string>("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [onlyTsunami, setOnlyTsunami] = useState(false);
+  const [onlyFelt, setOnlyFelt] = useState(false);
   const [colorBy, setColorBy] = useState<"mag" | "depth">("mag");
   const [showHeat, setShowHeat] = useState(false);
   const [showRegions, setShowRegions] = useState(false);
@@ -132,6 +142,12 @@ export default function App() {
         : "Sismos Global — catálogo, análisis y pronóstico sísmico mundial";
   }, [lang]);
 
+  useEffect(() => {
+    if (!autoRefresh) return;
+    const id = window.setInterval(() => setNow(Date.now()), AUTO_REFRESH_MS);
+    return () => window.clearInterval(id);
+  }, [autoRefresh]);
+
   const applyFromUrl = useCallback((params: URLSearchParams) => {
     const langParam = params.get("lang");
     if (langParam === "en" || langParam === "es") setLang(langParam);
@@ -144,6 +160,9 @@ export default function App() {
       setRegionId(regionParam);
       setHistMinMag(regionParam ? MIN_MAG_ZONA : MIN_MAG_MUNDO);
     }
+
+    const qParam = params.get("q");
+    if (qParam) setSearchQuery(qParam);
 
     const src = params.get("source");
     if (src === "reciente" || src === "historico") setSource(src);
@@ -164,6 +183,8 @@ export default function App() {
 
     if (params.get("heat") === "1") setShowHeat(true);
     if (params.get("zones") === "1") setShowRegions(true);
+    if (params.get("tsunami") === "1") setOnlyTsunami(true);
+    if (params.get("felt") === "1") setOnlyFelt(true);
   }, []);
 
   const shareState = useMemo(
@@ -171,6 +192,7 @@ export default function App() {
       lang,
       tab,
       region: regionId,
+      q: searchQuery.trim(),
       source,
       catalog: catalogSource,
       from: String(histStartYear),
@@ -178,11 +200,14 @@ export default function App() {
       color: colorBy === "mag" ? "" : colorBy,
       heat: showHeat ? "1" : "",
       zones: showRegions ? "1" : "",
+      tsunami: onlyTsunami ? "1" : "",
+      felt: onlyFelt ? "1" : "",
     }),
     [
       lang,
       tab,
       regionId,
+      searchQuery,
       source,
       catalogSource,
       histStartYear,
@@ -190,6 +215,8 @@ export default function App() {
       colorBy,
       showHeat,
       showRegions,
+      onlyTsunami,
+      onlyFelt,
     ],
   );
 
@@ -233,20 +260,36 @@ export default function App() {
   const needsHistory = tab === "analisis" || needsWorld;
   const active = needsHistory ? hist : source === "reciente" ? live : hist;
 
-  const filtered = useMemo(
-    () =>
-      active.quakes.filter((q) => {
-        if (q.mag < minMag || q.depth > maxDepth) return false;
-        if (region && !inBbox(q.lat, q.lon, region.bbox)) return false;
-        if (clasesOcultas.includes(magClass(q.mag))) return false;
-        if (decada !== null) {
-          const año = new Date(q.time).getUTCFullYear();
-          if (año < decada || año >= decada + 10) return false;
-        }
-        return true;
-      }),
-    [active.quakes, minMag, maxDepth, region, clasesOcultas, decada],
-  );
+  const filtered = useMemo(() => {
+    const needle = searchQuery.trim().toLowerCase();
+    return active.quakes.filter((q) => {
+      if (q.mag < minMag || q.depth > maxDepth) return false;
+      if (region && !inBbox(q.lat, q.lon, region.bbox)) return false;
+      if (onlyTsunami && !q.tsunami) return false;
+      if (onlyFelt && q.mmi == null && q.cdi == null && (q.felt ?? 0) <= 0)
+        return false;
+      if (needle) {
+        const hay = `${q.place} ${q.source ?? ""} ${q.id}`.toLowerCase();
+        if (!hay.includes(needle)) return false;
+      }
+      if (clasesOcultas.includes(magClass(q.mag))) return false;
+      if (decada !== null) {
+        const año = new Date(q.time).getUTCFullYear();
+        if (año < decada || año >= decada + 10) return false;
+      }
+      return true;
+    });
+  }, [
+    active.quakes,
+    minMag,
+    maxDepth,
+    region,
+    onlyTsunami,
+    onlyFelt,
+    searchQuery,
+    clasesOcultas,
+    decada,
+  ]);
 
   /** Décadas con eventos en el catálogo actual, de la más reciente a la más antigua. */
   const decadas = useMemo(() => {
@@ -271,11 +314,42 @@ export default function App() {
   const selectRegion = (id: string) => {
     setRegionId(id);
     setHistMinMag(id ? MIN_MAG_ZONA : MIN_MAG_MUNDO);
+    if (!id) {
+      setFocus({ lat: 15, lon: 0, zoom: 2 });
+      return;
+    }
+    const r = ALL_REGIONS.find((x) => x.id === id);
+    if (r) {
+      const centerLat = (r.bbox.minLat + r.bbox.maxLat) / 2;
+      const centerLon = (r.bbox.minLon + r.bbox.maxLon) / 2;
+      const span = Math.max(
+        r.bbox.maxLat - r.bbox.minLat,
+        r.bbox.maxLon - r.bbox.minLon,
+      );
+      const zoom = span > 40 ? 4 : span > 15 ? 5 : 6;
+      setFocus({ lat: centerLat, lon: centerLon, zoom });
+    }
   };
 
   const focusOn = (q: Quake) => {
     setFocus({ lat: q.lat, lon: q.lon, zoom: 8 });
     setTab("mapa");
+  };
+
+  const onExportCsv = () => {
+    downloadTextFile(
+      `sismos-${source}-${filtered.length}.csv`,
+      quakesToCsv(filtered),
+      "text/csv;charset=utf-8",
+    );
+  };
+
+  const onExportGeoJson = () => {
+    downloadTextFile(
+      `sismos-${source}-${filtered.length}.geojson`,
+      quakesToGeoJson(filtered),
+      "application/geo+json;charset=utf-8",
+    );
   };
 
   const onShare = async () => {
@@ -297,38 +371,67 @@ export default function App() {
         </div>
         <div className="flex flex-wrap items-center gap-4 text-xs">
           {latest && (
-            <div>
-              <div className="text-[11px] uppercase tracking-wider text-slate-500">
+            <button
+              type="button"
+              onClick={() => focusOn(latest)}
+              className="group text-left transition"
+              title={latest.place}
+            >
+              <div className="text-[11px] uppercase tracking-wider text-slate-500 group-hover:text-sky-400">
                 {t.lastEvent}
               </div>
               <div className="mt-0.5 flex items-center gap-2">
                 <Badge color={magColor(latest.mag)}>
                   {latest.mag.toFixed(1)}
                 </Badge>
-                <span className="max-w-[220px] truncate text-slate-300">
+                <span className="max-w-[220px] truncate text-slate-300 group-hover:text-white">
                   {latest.place}
                 </span>
                 <span className="text-slate-600">
                   {fmtAgo(latest.time, now, lang)}
                 </span>
               </div>
-            </div>
+            </button>
           )}
           {strongest && (
-            <div>
-              <div className="text-[11px] uppercase tracking-wider text-slate-500">
+            <button
+              type="button"
+              onClick={() => focusOn(strongest)}
+              className="group text-left transition"
+              title={strongest.place}
+            >
+              <div className="text-[11px] uppercase tracking-wider text-slate-500 group-hover:text-sky-400">
                 {t.strongest30d}
               </div>
               <div className="mt-0.5 flex items-center gap-2">
                 <Badge color={magColor(strongest.mag)}>
                   {strongest.mag.toFixed(1)}
                 </Badge>
-                <span className="max-w-[200px] truncate text-slate-300">
+                <span className="max-w-[200px] truncate text-slate-300 group-hover:text-white">
                   {strongest.place}
                 </span>
               </div>
-            </div>
+            </button>
           )}
+          <button
+            type="button"
+            onClick={() => setAutoRefresh((v) => !v)}
+            title={t.autoRefreshHint}
+            className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition ${
+              autoRefresh
+                ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
+                : "border-ink-700 bg-ink-800 text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            <span
+              className={`h-2 w-2 rounded-full ${
+                autoRefresh
+                  ? "animate-pulse bg-emerald-400"
+                  : "bg-slate-600"
+              }`}
+            />
+            {t.autoRefresh}
+          </button>
           <label className="flex flex-col gap-1">
             <span className="text-[11px] uppercase tracking-wider text-slate-500">
               {t.langLabel}
@@ -350,7 +453,13 @@ export default function App() {
                 ? t.shareFailed
                 : t.share}
           </button>
-          <button className={buttonClass} onClick={() => active.reload(true)}>
+          <button
+            className={buttonClass}
+            onClick={() => {
+              setNow(Date.now());
+              active.reload(true);
+            }}
+          >
             {t.refresh}
           </button>
         </div>
@@ -446,6 +555,49 @@ export default function App() {
               </optgroup>
             </select>
           </label>
+          <label className="flex min-w-[200px] flex-1 flex-col gap-1">
+            <span className="text-[11px] uppercase tracking-wider text-slate-500">
+              {lang === "en" ? "Search" : "Buscar"}
+            </span>
+            <div className="relative flex items-center">
+              <input
+                type="search"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder={t.searchPlaceholder}
+                className={`${inputClass} w-full pr-7`}
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery("")}
+                  title={t.clearSearch}
+                  aria-label={t.clearSearch}
+                  className="absolute right-2 text-xs text-slate-500 hover:text-slate-200"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+          </label>
+          <label className="flex items-center gap-2 pb-1.5 text-xs text-slate-400">
+            <input
+              type="checkbox"
+              checked={onlyTsunami}
+              onChange={(e) => setOnlyTsunami(e.target.checked)}
+              className="accent-sky-500"
+            />
+            {t.tsunamiOnly}
+          </label>
+          <label className="flex items-center gap-2 pb-1.5 text-xs text-slate-400">
+            <input
+              type="checkbox"
+              checked={onlyFelt}
+              onChange={(e) => setOnlyFelt(e.target.checked)}
+              className="accent-sky-500"
+            />
+            {t.feltOnly}
+          </label>
           {tab === "mapa" && (
             <>
               <label className="flex flex-col gap-1">
@@ -483,6 +635,26 @@ export default function App() {
               </label>
             </>
           )}
+          <div className="ml-auto flex items-center gap-1.5 pb-0.5">
+            <button
+              type="button"
+              className={buttonClass}
+              disabled={filtered.length === 0}
+              onClick={onExportCsv}
+              title="Descargar eventos filtrados en CSV"
+            >
+              ↓ {t.exportCsv}
+            </button>
+            <button
+              type="button"
+              className={buttonClass}
+              disabled={filtered.length === 0}
+              onClick={onExportGeoJson}
+              title="Descargar eventos filtrados en GeoJSON"
+            >
+              ↓ {t.exportGeoJson}
+            </button>
+          </div>
         </div>
       )}
 
@@ -610,6 +782,7 @@ export default function App() {
               showRegions={showRegions}
               selectedRegionId={regionId || null}
               onSelectRegion={(id) => selectRegion(id ?? "")}
+              onIntensity={setIntensityQuake}
               focus={focus}
               now={now}
               className="h-[calc(100vh-320px)] min-h-[420px]"
@@ -693,11 +866,18 @@ export default function App() {
                       </span>
                     ))}
               </span>
-              {(clasesOcultas.length > 0 || decada !== null) && (
+              {(clasesOcultas.length > 0 ||
+                decada !== null ||
+                searchQuery.trim() !== "" ||
+                onlyTsunami ||
+                onlyFelt) && (
                 <button
                   onClick={() => {
                     setClasesOcultas([]);
                     setDecada(null);
+                    setSearchQuery("");
+                    setOnlyTsunami(false);
+                    setOnlyFelt(false);
                   }}
                   className="text-slate-400 underline underline-offset-2 hover:text-slate-200"
                 >
@@ -716,11 +896,18 @@ export default function App() {
             quakes={filtered}
             onFocus={focusOn}
             onIntensity={setIntensityQuake}
+            now={now}
           />
         )}
 
         <Suspense fallback={<Spinner label={t.loadingModule} />}>
-          {tab === "analisis" && <Analytics quakes={filtered} />}
+          {tab === "analisis" && (
+            <Analytics
+              quakes={filtered}
+              onFocus={focusOn}
+              onIntensity={setIntensityQuake}
+            />
+          )}
           {tab === "pronostico" && <Forecast quakes={hist.quakes} now={now} />}
           {tab === "intensidad" && <Hazard quakes={hist.quakes} />}
           {tab === "almacen" && <Warehouse quakes={hist.quakes} />}
@@ -735,6 +922,7 @@ export default function App() {
         <QuakeIntensityPanel
           quake={intensityQuake}
           onClose={() => setIntensityQuake(null)}
+          onFocus={focusOn}
         />
       )}
     </div>

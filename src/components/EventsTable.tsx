@@ -10,35 +10,51 @@ export default function EventsTable({
   quakes,
   onFocus,
   onIntensity,
+  now,
 }: {
   quakes: Quake[];
   onFocus?: (q: Quake) => void;
   onIntensity?: (q: Quake) => void;
+  now?: number;
 }) {
   const [sort, setSort] = useState<SortKey>("time");
+  const [asc, setAsc] = useState(false);
   const [limit, setLimit] = useState(100);
 
+  const toggleSort = (key: SortKey) => {
+    if (sort === key) {
+      setAsc((prev) => !prev);
+    } else {
+      setSort(key);
+      setAsc(key === "depth");
+    }
+  };
+
   const rows = useMemo(() => {
+    const dir = asc ? 1 : -1;
     const sorted = [...quakes].sort((a, b) => {
-      if (sort === "mag") return b.mag - a.mag;
-      if (sort === "depth") return a.depth - b.depth;
-      return b.time - a.time;
+      if (sort === "mag") return (a.mag - b.mag) * dir;
+      if (sort === "depth") return (a.depth - b.depth) * dir;
+      return (a.time - b.time) * dir;
     });
     return sorted.slice(0, limit);
-  }, [quakes, sort, limit]);
+  }, [quakes, sort, asc, limit]);
 
   if (!quakes.length)
     return <Empty>Ningún sismo cumple los filtros actuales.</Empty>;
 
   const th = (key: SortKey, label: string) => (
     <th
+      aria-sort={
+        sort === key ? (asc ? "ascending" : "descending") : "none"
+      }
       className={`cursor-pointer select-none px-3 py-2 text-left font-medium transition hover:text-slate-200 ${
         sort === key ? "text-sky-400" : "text-slate-500"
       }`}
-      onClick={() => setSort(key)}
+      onClick={() => toggleSort(key)}
     >
       {label}
-      {sort === key ? " ↓" : ""}
+      {sort === key ? (asc ? " ↑" : " ↓") : ""}
     </th>
   );
 
@@ -76,8 +92,13 @@ export default function EventsTable({
                   title={q.place}
                 >
                   {q.place}
+                  {q.source && q.source !== "USGS" && (
+                    <span className="ml-1.5 rounded border border-ink-700 bg-ink-900 px-1 py-0.5 font-mono text-[10px] text-slate-400">
+                      {q.source}
+                    </span>
+                  )}
                   {q.tsunami && (
-                    <span className="ml-2 text-[11px] text-amber-300">
+                    <span className="ml-2 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-300">
                       tsunami
                     </span>
                   )}
@@ -85,7 +106,7 @@ export default function EventsTable({
                 <td className="whitespace-nowrap px-3 py-2 text-slate-400">
                   {fmtDateTime(q.time)}
                   <span className="ml-2 text-[11px] text-slate-600">
-                    {fmtAgo(q.time)}
+                    {fmtAgo(q.time, now)}
                   </span>
                 </td>
                 <td className="whitespace-nowrap px-3 py-2 font-mono text-slate-300">

@@ -38,7 +38,15 @@ const tooltipStyle = {
   color: "#e2e8f0",
 };
 
-export default function Analytics({ quakes }: { quakes: Quake[] }) {
+export default function Analytics({
+  quakes,
+  onFocus,
+  onIntensity,
+}: {
+  quakes: Quake[];
+  onFocus?: (q: Quake) => void;
+  onIntensity?: (q: Quake) => void;
+}) {
   const analysis = useMemo(() => {
     if (quakes.length < 30) return null;
     const gr = fitGutenbergRichter(quakes);
@@ -363,7 +371,7 @@ export default function Analytics({ quakes }: { quakes: Quake[] }) {
             .map((q) => (
               <div
                 key={q.id}
-                className="flex items-center gap-3 rounded-xl border border-ink-800 bg-ink-950/50 px-3 py-2"
+                className="flex items-center gap-3 rounded-xl border border-ink-800 bg-ink-950/50 px-3 py-2 transition hover:border-ink-700"
               >
                 <span
                   className="font-mono text-lg font-bold"
@@ -380,6 +388,28 @@ export default function Analytics({ quakes }: { quakes: Quake[] }) {
                     km de profundidad
                   </span>
                 </span>
+                <div className="flex shrink-0 gap-1">
+                  {onFocus && (
+                    <button
+                      type="button"
+                      onClick={() => onFocus(q)}
+                      className="rounded border border-ink-700 bg-ink-900 px-2 py-1 text-[11px] text-slate-300 transition hover:border-sky-500/50 hover:text-white"
+                      title="Ver en el mapa"
+                    >
+                      Mapa
+                    </button>
+                  )}
+                  {onIntensity && (
+                    <button
+                      type="button"
+                      onClick={() => onIntensity(q)}
+                      className="rounded border border-ink-700 bg-ink-900 px-2 py-1 text-[11px] text-slate-300 transition hover:border-sky-500/50 hover:text-white"
+                      title="Estimar sacudida MMI"
+                    >
+                      MMI
+                    </button>
+                  )}
+                </div>
               </div>
             ))}
         </div>

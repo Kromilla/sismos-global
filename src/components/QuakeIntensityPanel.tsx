@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Quake } from "../types";
 import { CITIES } from "../data/cities";
 import {
@@ -8,17 +8,20 @@ import {
   mmiColor,
   mmiLevel,
   mmiRoman,
+  mmiToPga,
+  pgaToG,
   radiusForMmi,
   wellsCoppersmithLength,
 } from "../science/intensity";
-import { haversineKm } from "../science/stats";
-import { fmtDateTime, magColor } from "../ui/format";
+import { fmtEnergy, haversineKm, tntTons } from "../science/stats";
+import { fmtDateTime, fmtNum, magColor } from "../ui/format";
 
 interface ImpactRow {
   city: (typeof CITIES)[number];
   distKm: number;
   rhypoKm: number;
   mmi: number;
+  pgaPctG: number;
   label: string;
   nearRupture: boolean;
 }
@@ -26,10 +29,24 @@ interface ImpactRow {
 interface Props {
   quake: Quake;
   onClose: () => void;
+  onFocus?: (q: Quake) => void;
 }
 
-export default function QuakeIntensityPanel({ quake, onClose }: Props) {
+export default function QuakeIntensityPanel({
+  quake,
+  onClose,
+  onFocus,
+}: Props) {
   const ipe = IPE_MODELS[DEFAULT_IPE];
+  const [customDistKm, setCustomDistKm] = useState(50);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
 
   const rows = useMemo<ImpactRow[]>(() => {
     const srl = wellsCoppersmithLength(quake.mag);
@@ -37,12 +54,14 @@ export default function QuakeIntensityPanel({ quake, onClose }: Props) {
       const distKm = haversineKm(quake.lat, quake.lon, city.lat, city.lon);
       const rhypoKm = hypocentralKm(distKm, quake.depth);
       const mmi = ipe.mmi(quake.mag, rhypoKm);
+      const pgaPctG = pgaToG(mmiToPga(mmi)) * 100;
       const nearRupture = quake.mag >= 7.0 && distKm < srl / 2;
       return {
         city,
         distKm,
         rhypoKm,
         mmi,
+        pgaPctG,
         label: mmiLevel(mmi).label,
         nearRupture,
       };
@@ -55,7 +74,14 @@ export default function QuakeIntensityPanel({ quake, onClose }: Props) {
   const iso6km = radiusForMmi(quake.mag, 6, quake.depth, ipe.mmi);
   const iso5km = radiusForMmi(quake.mag, 5, quake.depth, ipe.mmi);
 
-  const maxMmi = rows[0]?.mmi ?? 0;
+  const epicentralMmi = ipe.mmi(quake.mag, hypocentralKm(0, quake.depth));
+  const maxMmi = Math.max(rows[0]?.mmi ?? 0, epicentralMmi);
+
+  const customRhypo = hypocentralKm(customDistKm, quake.depth);
+  const customMmi = ipe.mmi(quake.mag, customRhypo);
+  const customPgaPctG = pgaToG(mmiToPga(customMmi)) * 100;
+  const customLvl = mmiLevel(customMmi);
+  const srlKm = wellsCoppersmithLength(quake.mag);
 
   return (
     /* Overlay */
@@ -109,15 +135,88 @@ export default function QuakeIntensityPanel({ quake, onClose }: Props) {
                   <b className="text-slate-200">{iso5km.toFixed(0)} km</b>
                 </span>
               )}
+              <span>
+                Energía:{" "}
+                <b className="font-mono text-slate-200">
+                  {fmtEnergy(quake.mag)}
+                </b>{" "}
+                ({fmtNum(tntTons(quake.mag) / 1000, 1)} kt TNT)
+              </span>
+              {srlKm >= 1 && (
+                <span>
+                  Ruptura est.:{" "}
+                  <b className="font-mono text-slate-200">
+                    ≈ {srlKm.toFixed(0)} km
+                  </b>
+                </span>
+              )}
+            </div>
+            <div className="mt-2.5 flex flex-wrap items-center gap-2 text-xs">
+              {onFocus && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onFocus(quake);
+                    onClose();
+                  }}
+                  className="rounded-lg border border-sky-500/40 bg-sky-500/10 px-2.5 py-1 text-xs font-medium text-sky-300 transition hover:bg-sky-500/20"
+                >
+                  Enfocar en el mapa
+                </button>
+              )}
+              <a
+                href={quake.url}
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-lg border border-slate-700 bg-slate-800/80 px-2.5 py-1 text-xs text-slate-300 transition hover:border-slate-600 hover:text-white"
+              >
+                Ficha oficial ({quake.source ?? "USGS"}) ↗
+              </a>
             </div>
           </div>
           <button
             onClick={onClose}
             className="shrink-0 rounded-lg p-1.5 text-slate-500 hover:bg-slate-800 hover:text-slate-200 transition"
             aria-label="Cerrar"
+            title="Cerrar (Esc)"
           >
             ✕
           </button>
+        </div>
+
+        {/* Calculadora rápida de distancia */}
+        <div className="border-b border-slate-800 bg-slate-950/60 px-5 py-3">
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+            <label className="flex flex-1 items-center gap-3 min-w-[220px]">
+              <span className="whitespace-nowrap text-[11px] uppercase tracking-wider text-slate-400">
+                Simular a{" "}
+                <b className="font-mono text-slate-100">{customDistKm} km</b>:
+              </span>
+              <input
+                type="range"
+                min={0}
+                max={600}
+                step={5}
+                value={customDistKm}
+                onChange={(e) => setCustomDistKm(Number(e.target.value))}
+                className="w-full accent-sky-500"
+              />
+            </label>
+            <div className="flex items-center gap-2.5">
+              <span
+                className="rounded px-2 py-0.5 font-mono text-xs font-bold text-slate-950"
+                style={{ background: mmiColor(customMmi) }}
+              >
+                MMI {mmiRoman(customMmi)}
+              </span>
+              <span className="font-mono text-xs text-sky-300">
+                {customPgaPctG < 1
+                  ? `${customPgaPctG.toFixed(2)}% g`
+                  : `${customPgaPctG.toFixed(1)}% g`}
+              </span>
+              <span className="text-xs text-slate-400">{customLvl.label}</span>
+            </div>
+          </div>
         </div>
 
         {/* Modelo usado */}
@@ -139,6 +238,7 @@ export default function QuakeIntensityPanel({ quake, onClose }: Props) {
                   <th className="px-4 py-2 text-left">Ciudad</th>
                   <th className="px-4 py-2 text-right">Distancia</th>
                   <th className="px-4 py-2 text-center">MMI</th>
+                  <th className="px-4 py-2 text-right">PGA est.</th>
                   <th className="px-4 py-2 text-left">Percepción</th>
                   <th className="px-4 py-2 w-24" />
                 </tr>
@@ -167,6 +267,11 @@ export default function QuakeIntensityPanel({ quake, onClose }: Props) {
                         >
                           {mmiRoman(r.mmi)}
                         </span>
+                      </td>
+                      <td className="px-4 py-2 text-right font-mono text-xs text-slate-400">
+                        {r.pgaPctG < 1
+                          ? `${r.pgaPctG.toFixed(2)}% g`
+                          : `${r.pgaPctG.toFixed(1)}% g`}
                       </td>
                       <td className="px-4 py-2 text-xs text-slate-500">
                         {r.label}

@@ -52,6 +52,7 @@ interface Props {
   rings?: Ring[];
   marker?: { lat: number; lon: number; label: string } | null;
   onMapClick?: (lat: number, lon: number) => void;
+  onIntensity?: (q: Quake) => void;
   focus?: { lat: number; lon: number; zoom: number } | null;
   className?: string;
   /** Anima con anillos los sismos de las últimas horas. */
@@ -134,6 +135,7 @@ export default function MapView({
   rings = [],
   marker = null,
   onMapClick,
+  onIntensity,
   focus = null,
   className = "",
   echo = true,
@@ -257,14 +259,25 @@ export default function MapView({
                   {q.tsunami && (
                     <div className="text-amber-300">Con aviso de tsunami</div>
                   )}
-                  <a
-                    className="inline-block pt-1 text-sky-400 underline"
-                    href={q.url}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    Ficha {q.source ?? "USGS"}
-                  </a>
+                  <div className="flex items-center gap-3 pt-1">
+                    {onIntensity && (
+                      <button
+                        type="button"
+                        onClick={() => onIntensity(q)}
+                        className="rounded border border-sky-500/40 bg-sky-500/10 px-2 py-0.5 text-xs font-medium text-sky-300 transition hover:bg-sky-500/20"
+                      >
+                        Impacto MMI
+                      </button>
+                    )}
+                    <a
+                      className="text-xs text-sky-400 underline"
+                      href={q.url}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Ficha {q.source ?? "USGS"}
+                    </a>
+                  </div>
                 </div>
               </Popup>
             </CircleMarker>

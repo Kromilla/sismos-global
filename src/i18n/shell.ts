@@ -46,9 +46,17 @@ export interface ShellCopy {
   lastEvent: string;
   strongest30d: string;
   refresh: string;
+  autoRefresh: string;
+  autoRefreshHint: string;
   share: string;
   shared: string;
   shareFailed: string;
+  searchPlaceholder: string;
+  clearSearch: string;
+  tsunamiOnly: string;
+  feltOnly: string;
+  exportCsv: string;
+  exportGeoJson: string;
   tabs: { id: TabId; label: string; hint: string }[];
   catalog: string;
   recent30: string;
@@ -101,9 +109,17 @@ const es: ShellCopy = {
   lastEvent: "Último evento",
   strongest30d: "Mayor en 30 días",
   refresh: "Actualizar",
+  autoRefresh: "En vivo",
+  autoRefreshHint: "Actualiza automáticamente el catálogo cada 2 minutos",
   share: "Compartir vista",
   shared: "Enlace copiado",
   shareFailed: "No se pudo copiar",
+  searchPlaceholder: "Buscar lugar o red (ej. Chile, Oaxaca, Japón)…",
+  clearSearch: "Limpiar búsqueda",
+  tsunamiOnly: "Con tsunami",
+  feltOnly: "Con intensidad (MMI/DYFI)",
+  exportCsv: "CSV",
+  exportGeoJson: "GeoJSON",
   tabs: [
     { id: "mapa", label: "Mapa", hint: "Sismicidad en tiempo casi real" },
     { id: "eventos", label: "Eventos", hint: "Catálogo tabulado" },
@@ -194,9 +210,17 @@ const en: ShellCopy = {
   lastEvent: "Latest event",
   strongest30d: "Strongest in 30 days",
   refresh: "Refresh",
+  autoRefresh: "Live",
+  autoRefreshHint: "Automatically refreshes the catalog every 2 minutes",
   share: "Share view",
   shared: "Link copied",
   shareFailed: "Could not copy",
+  searchPlaceholder: "Search place or network (e.g. Chile, Alaska, Japan)…",
+  clearSearch: "Clear search",
+  tsunamiOnly: "Tsunami only",
+  feltOnly: "With intensity (MMI/DYFI)",
+  exportCsv: "CSV",
+  exportGeoJson: "GeoJSON",
   tabs: [
     { id: "mapa", label: "Map", hint: "Near-real-time seismicity" },
     { id: "eventos", label: "Events", hint: "Tabulated catalog" },
