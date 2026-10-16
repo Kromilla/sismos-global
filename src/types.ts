@@ -84,3 +84,12 @@ export interface CatalogQuery {
   minMag: number;
   bbox: Bbox;
 }
+
+export type Tab =
+  | "mapa"
+  | "eventos"
+  | "analisis"
+  | "pronostico"
+  | "intensidad"
+  | "almacen"
+  | "aprender";

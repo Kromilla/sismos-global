@@ -55,16 +55,16 @@ export const FDSN_NETWORKS: Record<string, FdsnNetwork> = {
   },
   IPGP: {
     id: "IPGP",
-    baseUrl: "http://ws.ipgp.fr/fdsnws/event/1",
+    baseUrl: "https://ws.ipgp.fr/fdsnws/event/1",
     source: "IPGP",
     eventUrl: (id) =>
-      `http://ws.ipgp.fr/fdsnws/event/1/query?eventid=${id}&format=text`,
+      `https://ws.ipgp.fr/fdsnws/event/1/query?eventid=${id}&format=text`,
   },
   SSN: {
     id: "SSN",
     baseUrl: "https://web.ssn.unam.mx/fdsnws/event/1",
     source: "SSN",
-    eventUrl: () => `http://www2.ssn.unam.mx:8080/catalogo/`,
+    eventUrl: () => `https://www.ssn.unam.mx/`,
   },
 };
 
@@ -81,7 +81,7 @@ interface FdsnFeature {
     cdi?: number | null;
     mmi?: number | null;
     felt?: number | null;
-  };
+  }; 
   geometry: { coordinates: [number, number, number] } | null;
 }
 
@@ -135,6 +135,7 @@ async function fetchJson(
   url: string,
   signal?: AbortSignal,
   retries = 3,
+  attempt = 0,
 ): Promise<unknown> {
   try {
     const res = await fetch(url, { signal });
@@ -149,8 +150,9 @@ async function fetchJson(
       (err instanceof DOMException && err.name === "AbortError")
     )
       throw err;
-    await new Promise((r) => setTimeout(r, 1000));
-    return fetchJson(url, signal, retries - 1);
+    const delay = Math.min(5000, 1000 * 2 ** attempt + Math.random() * 500);
+    await new Promise((r) => setTimeout(r, delay));
+    return fetchJson(url, signal, retries - 1, attempt + 1);
   }
 }
 
@@ -160,11 +162,13 @@ async function countFdsn(
   signal?: AbortSignal,
 ): Promise<number> {
   try {
-    const data = (await fetchJson(
-      `${net.baseUrl}/count?${queryString(net, q)}`,
-      signal,
-    )) as { count: number };
-    return data.count ?? 0;
+    const p = new URLSearchParams(queryString(net, q));
+    p.delete("format"); // /count suele ser text/plain y falla con format=geojson en varios nodos
+    const res = await fetch(`${net.baseUrl}/count?${p.toString()}`, { signal });
+    if (!res.ok) return FDSN_MAX;
+    const text = await res.text();
+    const match = text.match(/\d+/);
+    return match ? parseInt(match[0], 10) : FDSN_MAX;
   } catch {
     // Algunos servicios no implementan /count — se asume que hay datos.
     return FDSN_MAX;
@@ -248,4 +252,57 @@ export function bboxOf(quakes: Quake[]): Bbox | null {
     if (k.lon > maxLon) maxLon = k.lon;
   }
   return { minLat, maxLat, minLon, maxLon };
+}
+
+/**
+ * Consulta un evento individual por ID contra USGS o EMSC.
+ * Permite resolver enlaces compartidos (?quake=id) incluso de eventos
+ * históricos o fuera del radio de carga en vivo.
+ */
+export async function fetchSingleQuake(
+  fullOrRawId: string,
+  signal?: AbortSignal,
+): Promise<Quake | null> {
+  const colonIndex = fullOrRawId.indexOf(":");
+  const netId = colonIndex !== -1 ? fullOrRawId.slice(0, colonIndex) : null;
+  const rawId =
+    colonIndex !== -1 ? fullOrRawId.slice(colonIndex + 1) : fullOrRawId;
+
+  // 1. Intentar USGS
+  if (!netId || netId === "USGS") {
+    try {
+      const res = await fetch(
+        `https://earthquake.usgs.gov/fdsnws/event/1/query?eventid=${encodeURIComponent(rawId)}&format=geojson`,
+        { signal },
+      );
+      if (res.ok) {
+        const data = (await res.json()) as FdsnFeature;
+        if (data && data.geometry && data.properties) {
+          return toQuake(data, FDSN_NETWORKS.USGS);
+        }
+      }
+    } catch {
+      // Probar siguiente
+    }
+  }
+
+  // 2. Intentar EMSC
+  if (!netId || netId === "EMSC") {
+    try {
+      const res = await fetch(
+        `https://www.seismicportal.eu/fdsnws/event/1/query?eventid=${encodeURIComponent(rawId)}&format=json`,
+        { signal },
+      );
+      if (res.ok) {
+        const data = (await res.json()) as FdsnFeature;
+        if (data && data.geometry && data.properties) {
+          return toQuake(data, FDSN_NETWORKS.EMSC);
+        }
+      }
+    } catch {
+      // Ignorar
+    }
+  }
+
+  return null;
 }

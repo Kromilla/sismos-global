@@ -23,6 +23,8 @@ import {
   magColor,
   magRadius,
 } from "../ui/format";
+import QuakeCard from "./QuakeCard";
+import { buildQuakeShareUrl, copyTextToClipboard } from "../utils/share";
 
 /** Tope de marcadores dibujados a la vez. */
 const MAX_MARKERS = 8000;
@@ -43,6 +45,7 @@ export interface Ring {
 
 interface Props {
   quakes: Quake[];
+  now: number;
   colorBy?: "mag" | "depth";
   showHeat?: boolean;
   showRegions?: boolean;
@@ -56,6 +59,9 @@ interface Props {
   className?: string;
   /** Anima con anillos los sismos de las últimas horas. */
   echo?: boolean;
+  selectedQuake?: Quake | null;
+  onSelectQuake?: (q: Quake | null) => void;
+  onOpenIntensity?: (q: Quake) => void;
 }
 
 function HeatLayer({ quakes, enabled }: { quakes: Quake[]; enabled: boolean }) {
@@ -123,6 +129,7 @@ function Focus({
 
 export default function MapView({
   quakes,
+  now,
   colorBy = "mag",
   showHeat = false,
   showRegions = false,
@@ -135,8 +142,12 @@ export default function MapView({
   focus = null,
   className = "",
   echo = true,
+  selectedQuake = null,
+  onSelectQuake,
+  onOpenIntensity,
 }: Props) {
   const [zoom, setZoom] = useState(2);
+  const [copiedPopupId, setCopiedPopupId] = useState<string | null>(null);
   // Dibujamos los más fuertes al final para que queden por encima. Si hay
   // demasiados, se recortan por magnitud: 60.000 círculos ahogan el canvas.
   const { ordered, hidden } = useMemo(() => {
@@ -158,12 +169,12 @@ export default function MapView({
 
   const ecos = useMemo(() => {
     if (!echo) return [];
-    const desde = Date.now() - ECHO_HORAS * 3600_000;
+    const desde = now - ECHO_HORAS * 3600_000;
     return quakes
       .filter((q) => q.time >= desde)
       .sort((a, b) => b.mag - a.mag)
       .slice(0, MAX_ECOS);
-  }, [quakes, echo]);
+  }, [quakes, echo, now]);
 
   return (
     <div
@@ -224,14 +235,17 @@ export default function MapView({
               pathOptions={{
                 color:
                   colorBy === "mag" ? magColor(q.mag) : depthColor(q.depth),
-                weight: q.id === newest?.id ? 2 : 1,
+                weight: q.id === selectedQuake?.id ? 3 : q.id === newest?.id ? 2 : 1,
                 fillColor:
                   colorBy === "mag" ? magColor(q.mag) : depthColor(q.depth),
-                fillOpacity: 0.45,
+                fillOpacity: q.id === selectedQuake?.id ? 0.8 : 0.45,
+              }}
+              eventHandlers={{
+                click: () => onSelectQuake?.(q),
               }}
             >
               <Popup>
-                <div className="space-y-1">
+                <div className="space-y-1.5 min-w-[210px]">
                   <div
                     className="font-mono text-base font-bold"
                     style={{ color: magColor(q.mag) }}
@@ -241,25 +255,56 @@ export default function MapView({
                       {q.magType}
                     </span>
                   </div>
-                  <div className="text-slate-200">{q.place}</div>
-                  <div className="text-slate-400">
+                  <div className="text-slate-200 font-medium">{q.place}</div>
+                  <div className="text-slate-400 text-xs">
                     {fmtDateTime(q.time)} · {fmtAgo(q.time)}
                   </div>
-                  <div className="text-slate-400">
+                  <div className="text-slate-400 text-xs">
                     Profundidad {q.depth.toFixed(0)} km · {q.lat.toFixed(2)},{" "}
                     {q.lon.toFixed(2)}
                   </div>
                   {q.tsunami && (
-                    <div className="text-amber-300">Con aviso de tsunami</div>
+                    <div className="text-amber-300 font-semibold text-xs">⚠️ Con aviso de tsunami</div>
                   )}
-                  <a
-                    className="inline-block pt-1 text-sky-400 underline"
-                    href={q.url}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    Ficha USGS
-                  </a>
+
+                  <div className="flex items-center gap-1.5 pt-2 border-t border-slate-700/60">
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const url = buildQuakeShareUrl(q.id);
+                        await copyTextToClipboard(url);
+                        setCopiedPopupId(q.id);
+                        setTimeout(() => setCopiedPopupId(null), 2500);
+                        onSelectQuake?.(q);
+                      }}
+                      className={`rounded px-2 py-1 text-[11px] font-bold transition ${
+                        copiedPopupId === q.id
+                          ? "border border-emerald-500/80 bg-emerald-500/20 text-emerald-300"
+                          : "bg-sky-500 hover:bg-sky-400 text-ink-950"
+                      }`}
+                      title="Copiar enlace directo y ver detalles de este sismo"
+                    >
+                      {copiedPopupId === q.id ? "✓ ¡Copiado!" : "🔗 Compartir"}
+                    </button>
+                    {onOpenIntensity && (
+                      <button
+                        type="button"
+                        onClick={() => onOpenIntensity(q)}
+                        className="rounded border border-slate-700 bg-slate-800 hover:bg-slate-700 px-2 py-1 text-[11px] font-medium text-slate-200 transition"
+                        title="Intensidad sísmica MMI por ciudad"
+                      >
+                        MMI
+                      </button>
+                    )}
+                    <a
+                      className="ml-auto text-[11px] text-sky-400 hover:underline"
+                      href={q.url}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Oficial ↗
+                    </a>
+                  </div>
                 </div>
               </Popup>
             </CircleMarker>
@@ -334,10 +379,39 @@ export default function MapView({
             </Tooltip>
           </CircleMarker>
         )}
+        {/* Marcador pulsante de sismo seleccionado */}
+        {selectedQuake && (
+          <Marker
+            key={`selected-marker-${selectedQuake.id}`}
+            position={[selectedQuake.lat, selectedQuake.lon]}
+            interactive={false}
+            zIndexOffset={2500}
+            icon={L.divIcon({
+              className: "",
+              iconSize: [40, 40],
+              iconAnchor: [20, 20],
+              html: `<div class="quake-selected-pulse" style="color:${magColor(selectedQuake.mag)}">
+                <span class="pulse-ring"></span>
+                <span class="pulse-core"></span>
+              </div>`,
+            })}
+          />
+        )}
       </MapContainer>
 
+      {/* Ficha flotante del sismo seleccionado */}
+      {selectedQuake && (
+        <div className="pointer-events-auto absolute bottom-4 left-4 z-[1001] max-w-[calc(100%-2rem)] sm:max-w-sm">
+          <QuakeCard
+            quake={selectedQuake}
+            onClose={() => onSelectQuake?.(null)}
+            onOpenIntensity={onOpenIntensity}
+          />
+        </div>
+      )}
+
       {hidden > 0 && (
-        <div className="pointer-events-none absolute bottom-2 left-2 z-[1000] rounded-lg border border-ink-700 bg-ink-950/85 px-2.5 py-1.5 text-[11px] text-slate-400">
+        <div className="pointer-events-none absolute bottom-2 right-2 z-[1000] rounded-lg border border-ink-700 bg-ink-950/85 px-2.5 py-1.5 text-[11px] text-slate-400">
           Se dibujan los {MAX_MARKERS.toLocaleString("es-CO")} de mayor magnitud
           · {hidden.toLocaleString("es-CO")} ocultos. Sube la magnitud mínima o
           enfoca una zona.

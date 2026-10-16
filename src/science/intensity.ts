@@ -30,7 +30,7 @@ export function mmiAtkinsonWald(mag: number, distKm: number): number {
     c5 * r +
     c6 * b +
     c7 * mag * logR;
-  return clamp(mmi, 1, 12);
+  return clamp(Math.min(mmi, lowMagMmiCap(mag)), 1, 12);
 }
 
 /** Desviación estándar aleatoria típica de una IPE, en unidades de MMI. */
@@ -171,6 +171,20 @@ export function mmiColor(mmi: number): string {
   return mmiLevel(mmi).color;
 }
 
+/**
+ * Límite físico para sismos de baja magnitud (M < 3.5).
+ * Las IPEs empíricas (Allen et al. 2012, Atkinson & Wald 2007) fueron
+ * calibradas para sismos M 3.0–7.9. Extrapolar linealmente hacia abajo
+ * sobreestima drásticamente la intensidad (un micro-sismo M 1.7 superficial
+ * daría espuriamente MMI IV en lugar de ser imperceptible MMI I).
+ */
+export function lowMagMmiCap(mag: number): number {
+  if (mag < 2.0) return 1.0;
+  if (mag < 3.0) return 1.0 + (mag - 2.0) * 1.0;
+  if (mag < 3.5) return 2.0 + (mag - 3.0) * 2.0;
+  return 12.0;
+}
+
 /** Radio aproximado (km) donde se alcanza cierta MMI, resolviendo la IPE. */
 export function radiusForMmi(
   mag: number,
@@ -178,12 +192,16 @@ export function radiusForMmi(
   depthKm = 10,
   ipe: (m: number, r: number) => number = mmiAllen2012,
 ): number {
-  let lo = 1;
+  // Si la intensidad en el punto más cercano (epicentro) no alcanza la requerida, el radio es 0
+  if (ipe(mag, hypocentralKm(0, depthKm)) < targetMmi) {
+    return 0;
+  }
+  let lo = 0;
   let hi = 1500;
   for (let i = 0; i < 60; i++) {
     const mid = (lo + hi) / 2;
     const mmi = ipe(mag, hypocentralKm(mid, depthKm));
-    if (mmi > targetMmi) lo = mid;
+    if (mmi >= targetMmi) lo = mid;
     else hi = mid;
   }
   return lo;
@@ -216,6 +234,7 @@ export function mmiAllen2012(mag: number, rhypoKm: number): number {
     ALLEN.c0 + ALLEN.c1 * mag + ALLEN.c2 * Math.log(Math.sqrt(r * r + rm * rm));
   // Más allá de 50 km entra un término de atenuación anelástica.
   if (r > 50) mmi += ALLEN.c4 * Math.log(r / 50);
+  mmi = Math.min(mmi, lowMagMmiCap(mag));
   return clamp(mmi, 1, 12);
 }
 

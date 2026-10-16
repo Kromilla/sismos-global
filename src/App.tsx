@@ -1,5 +1,5 @@
-import { Suspense, lazy, useMemo, useState } from "react";
-import type { CatalogQuery, CatalogSource, Quake } from "./types";
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
+import type { CatalogQuery, CatalogSource, Tab } from "./types";
 import {
   ALL_REGIONS,
   REGIONS,
@@ -8,14 +8,23 @@ import {
   inBbox,
 } from "./data/regions";
 import { useCatalog } from "./hooks/useCatalog";
+import { useAlerts } from "./hooks/useAlerts";
+import { fetchSingleQuake } from "./data/fdsn";
+import { quakesMatchId } from "./utils/share";
+import {
+  useQuakeStore,
+  MIN_MAG_MUNDO,
+} from "./store/useQuakeStore";
 import MapView from "./components/MapView";
 import EventsTable from "./components/EventsTable";
 import QuakeIntensityPanel from "./components/QuakeIntensityPanel";
-import { Badge, Note, Spinner, buttonClass, inputClass } from "./components/ui";
+import AlertPanel from "./components/AlertPanel";
+import HeroStats from "./components/HeroStats";
+import LiveFeed from "./components/LiveFeed";
+import { Note, Spinner, buttonClass, inputClass } from "./components/ui";
 import { DAY_MS } from "./science/stats";
 import {
   MAG_CLASSES,
-  fmtAgo,
   fmtNum,
   magClass,
   magClassLabel,
@@ -27,15 +36,6 @@ const Forecast = lazy(() => import("./components/Forecast"));
 const Hazard = lazy(() => import("./components/Hazard"));
 const Warehouse = lazy(() => import("./components/Warehouse"));
 const Learn = lazy(() => import("./components/Learn"));
-
-type Tab =
-  | "mapa"
-  | "eventos"
-  | "analisis"
-  | "pronostico"
-  | "intensidad"
-  | "almacen"
-  | "aprender";
 
 const TABS: { id: Tab; label: string; hint: string }[] = [
   { id: "mapa", label: "Mapa", hint: "Sismicidad en tiempo casi real" },
@@ -58,38 +58,62 @@ const TABS: { id: Tab; label: string; hint: string }[] = [
 // 1610 y 1900 solo aportan datos con el catálogo del SGC activado.
 const HIST_START_YEARS = [1610, 1900, 1950, 1970, 1990, 2000, 2010];
 
-/**
- * Magnitud mínima por defecto según el alcance. El catálogo mundial completo
- * desde 1990 son 230.000 eventos con M≥4.5 y solo 62.000 con M≥5.0, así que
- * el umbral baja únicamente cuando se enfoca una zona y la consulta se recorta
- * a su recuadro.
- */
-const MIN_MAG_MUNDO = 5;
-const MIN_MAG_ZONA = 4.5;
-
 export default function App() {
-  // Instante fijo del arranque: evita rehacer la consulta en cada render.
-  const [now] = useState(() => Date.now());
+  // Instante base: se actualiza cada 2 minutos para tener "tiempo real"
+  const [now, setNow] = useState(() => Date.now());
 
-  const [tab, setTab] = useState<Tab>("mapa");
-  const [source, setSource] = useState<"reciente" | "historico">("reciente");
-  const [minMag, setMinMag] = useState(2.5);
-  const [maxDepth, setMaxDepth] = useState(800);
-  const [regionId, setRegionId] = useState<string>("");
-  const [colorBy, setColorBy] = useState<"mag" | "depth">("mag");
-  const [showHeat, setShowHeat] = useState(false);
-  const [showRegions, setShowRegions] = useState(false);
-  const [histStartYear, setHistStartYear] = useState(1990);
-  const [histMinMag, setHistMinMag] = useState(MIN_MAG_MUNDO);
-  const [catalogSource, setCatalogSource] = useState<CatalogSource>("USGS");
-  const [focus, setFocus] = useState<{
-    lat: number;
-    lon: number;
-    zoom: number;
-  } | null>(null);
-  const [clasesOcultas, setClasesOcultas] = useState<number[]>([]);
-  const [decada, setDecada] = useState<number | null>(null);
-  const [intensityQuake, setIntensityQuake] = useState<Quake | null>(null);
+  useEffect(() => {
+    const interval = setInterval(() => setNow(Date.now()), 120_000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const {
+    tab,
+    setTab,
+    source,
+    setSource,
+    minMag,
+    setMinMag,
+    maxDepth,
+    setMaxDepth,
+    regionId,
+    setRegionId,
+    colorBy,
+    setColorBy,
+    showHeat,
+    setShowHeat,
+    showRegions,
+    setShowRegions,
+    histStartYear,
+    setHistStartYear,
+    histMinMag,
+    setHistMinMag,
+    catalogSource,
+    setCatalogSource,
+    focus,
+    clasesOcultas,
+    toggleClaseOculta,
+    decada,
+    setDecada,
+    resetFiltros,
+    selectedQuake,
+    setSelectedQuake,
+    urlQuakeId,
+    focusOn,
+    intensityQuake,
+    setIntensityQuake,
+    showAlerts,
+    setShowAlerts,
+    showLiveFeed,
+    setShowLiveFeed,
+    syncFromUrl,
+  } = useQuakeStore();
+
+  // Escuchar navegación del historial del navegador (Atrás / Adelante)
+  useEffect(() => {
+    window.addEventListener("popstate", syncFromUrl);
+    return () => window.removeEventListener("popstate", syncFromUrl);
+  }, [syncFromUrl]);
 
   const region = useMemo(
     () => ALL_REGIONS.find((r) => r.id === regionId) ?? null,
@@ -98,17 +122,14 @@ export default function App() {
 
   const liveQuery: CatalogQuery = useMemo(
     () => ({
-      startTime: now - 30 * DAY_MS,
+      startTime: now - 7 * DAY_MS,
       endTime: now,
-      minMag: 2.5,
+      minMag: 0,
       bbox: WORLD_BBOX,
     }),
     [now],
   );
-  // El pronóstico compara las 49 zonas entre sí y la amenaza busca fuentes
-  // alrededor de una ciudad: ambos necesitan el catálogo mundial. El mapa, la
-  // tabla y el análisis sí se recortan a la zona elegida, y solo entonces baja
-  // el umbral de magnitud: pedir M≥4.5 del planeta entero son 230.000 eventos.
+
   const needsWorld =
     tab === "pronostico" || tab === "intensidad" || tab === "almacen";
   const scoped = region && !needsWorld;
@@ -125,6 +146,53 @@ export default function App() {
 
   const live = useCatalog(liveQuery, 10 * 60 * 1000, catalogSource);
   const hist = useCatalog(histQuery, 24 * 60 * 60 * 1000, catalogSource);
+  const alerts = useAlerts(live.quakes);
+
+  // Resolver sismo de la URL (?quake=id)
+  const fetchingRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!urlQuakeId) {
+      if (selectedQuake) setSelectedQuake(null);
+      fetchingRef.current = null;
+      return;
+    }
+    if (selectedQuake && quakesMatchId(selectedQuake.id, urlQuakeId)) {
+      return;
+    }
+
+    const match =
+      live.quakes.find((q) => quakesMatchId(q.id, urlQuakeId)) ??
+      hist.quakes.find((q) => quakesMatchId(q.id, urlQuakeId));
+
+    if (match) {
+      focusOn(match);
+      return;
+    }
+
+    if (fetchingRef.current === urlQuakeId) return;
+    fetchingRef.current = urlQuakeId;
+
+    fetchSingleQuake(urlQuakeId)
+      .then((q) => {
+        if (!q) return;
+        if (useQuakeStore.getState().urlQuakeId === urlQuakeId) {
+          focusOn(q);
+        }
+      })
+      .finally(() => {
+        if (fetchingRef.current === urlQuakeId) {
+          fetchingRef.current = null;
+        }
+      });
+  }, [
+    urlQuakeId,
+    live.quakes,
+    hist.quakes,
+    selectedQuake,
+    focusOn,
+    setSelectedQuake,
+  ]);
 
   const needsHistory = tab === "analisis" || needsWorld;
   const active = needsHistory ? hist : source === "reciente" ? live : hist;
@@ -144,6 +212,13 @@ export default function App() {
     [active.quakes, minMag, maxDepth, region, clasesOcultas, decada],
   );
 
+  /** Asegura que el sismo seleccionado por URL o click se dibuje en el mapa aunque esté filtrado */
+  const quakesForMap = useMemo(() => {
+    if (!selectedQuake) return filtered;
+    if (filtered.some((q) => q.id === selectedQuake.id)) return filtered;
+    return [selectedQuake, ...filtered];
+  }, [filtered, selectedQuake]);
+
   /** Décadas con eventos en el catálogo actual, de la más reciente a la más antigua. */
   const decadas = useMemo(() => {
     const cuenta = new Map<number, number>();
@@ -154,71 +229,68 @@ export default function App() {
     return [...cuenta.entries()].sort((x, y) => y[0] - x[0]);
   }, [active.quakes]);
 
-  const strongest = useMemo(
-    () =>
-      live.quakes.reduce<Quake | null>(
-        (mx, q) => (!mx || q.mag > mx.mag ? q : mx),
-        null,
-      ),
-    [live.quakes],
-  );
-  const latest = live.quakes[0] ?? null;
-
-  const selectRegion = (id: string) => {
-    setRegionId(id);
-    setHistMinMag(id ? MIN_MAG_ZONA : MIN_MAG_MUNDO);
-  };
-
-  const focusOn = (q: Quake) => {
-    setFocus({ lat: q.lat, lon: q.lon, zoom: 8 });
-    setTab("mapa");
-  };
-
   return (
     <div className="mx-auto flex min-h-full max-w-[1400px] flex-col gap-4 px-4 py-5">
-      <header className="flex flex-wrap items-end justify-between gap-4">
-        <div>
+      <header className="flex items-center gap-4">
+        {/* Identidad */}
+        <div className="shrink-0">
           <h1 className="text-xl font-semibold tracking-tight text-slate-100">
             Sismos <span className="text-sky-400">Global</span>
           </h1>
           <p className="mt-0.5 text-xs text-slate-500">
-            Catálogo mundial · USGS, EMSC, GeoNet, Geoscience Australia, INGV y
-            SGC
+            Catálogo mundial · USGS, EMSC, GeoNet, GA, INGV y SGC
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-4 text-xs">
-          {latest && (
-            <div>
-              <div className="text-[11px] uppercase tracking-wider text-slate-500">
-                Último evento
-              </div>
-              <div className="mt-0.5 flex items-center gap-2">
-                <Badge color={magColor(latest.mag)}>
-                  {latest.mag.toFixed(1)}
-                </Badge>
-                <span className="max-w-[220px] truncate text-slate-300">
-                  {latest.place}
-                </span>
-                <span className="text-slate-600">{fmtAgo(latest.time)}</span>
-              </div>
-            </div>
-          )}
-          {strongest && (
-            <div>
-              <div className="text-[11px] uppercase tracking-wider text-slate-500">
-                Mayor en 30 días
-              </div>
-              <div className="mt-0.5 flex items-center gap-2">
-                <Badge color={magColor(strongest.mag)}>
-                  {strongest.mag.toFixed(1)}
-                </Badge>
-                <span className="max-w-[200px] truncate text-slate-300">
-                  {strongest.place}
-                </span>
-              </div>
-            </div>
-          )}
-          <button className={buttonClass} onClick={() => active.reload(true)}>
+
+        {/* Hero stats en tiempo real — ocupa el espacio disponible */}
+        <div className="min-w-0 flex-1 overflow-x-auto">
+          <HeroStats
+            liveQuakes={live.quakes}
+            now={now}
+            onFocus={focusOn}
+          />
+        </div>
+
+        {/* Acciones */}
+        <div className="flex shrink-0 items-center gap-2">
+          {/* Botón de alertas — con indicador si hay alertas recientes no leídas */}
+          <button
+            id="open-alerts-btn"
+            onClick={() => setShowAlerts(true)}
+            className={`relative rounded-lg border px-3 py-1.5 text-xs transition ${
+              alerts.prefs.enabled && alerts.permission === "granted"
+                ? "border-sky-600/50 bg-sky-500/10 text-sky-300 hover:bg-sky-500/20"
+                : "border-slate-700 text-slate-400 hover:border-slate-500 hover:text-slate-200"
+            }`}
+            title="Configurar alertas sísmicas"
+          >
+            🔔 Alertas
+            {alerts.recent.length > 0 && (
+              <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-sky-500 font-mono text-[10px] font-bold text-white">
+                {alerts.recent.length > 9 ? "9+" : alerts.recent.length}
+              </span>
+            )}
+          </button>
+
+          {/* Botón live feed */}
+          <button
+            id="toggle-live-feed-btn"
+            onClick={() => setShowLiveFeed((v) => !v)}
+            className={`rounded-lg border px-3 py-1.5 text-xs transition ${
+              showLiveFeed
+                ? "border-emerald-600/50 bg-emerald-500/10 text-emerald-300"
+                : "border-slate-700 text-slate-400 hover:border-slate-500 hover:text-slate-200"
+            }`}
+            title="Feed de eventos en vivo"
+          >
+            ● En vivo
+          </button>
+
+          <button
+            id="reload-catalog-btn"
+            className={buttonClass}
+            onClick={() => active.reload(true)}
+          >
             Actualizar
           </button>
         </div>
@@ -242,7 +314,7 @@ export default function App() {
       </nav>
 
       {(tab === "mapa" || tab === "eventos") && (
-        <div className="flex flex-wrap items-end gap-3 rounded-2xl border border-ink-800 bg-ink-900/50 p-3">
+        <div className="flex flex-wrap items-end gap-3 rounded-2xl border border-ink-800 bg-ink-900/40 backdrop-blur-md p-3">
           <label className="flex flex-col gap-1">
             <span className="text-[11px] uppercase tracking-wider text-slate-500">
               Catálogo
@@ -254,7 +326,7 @@ export default function App() {
                 setSource(e.target.value as "reciente" | "historico")
               }
             >
-              <option value="reciente">Últimos 30 días (M≥2.5)</option>
+              <option value="reciente">Últimos 7 días (M≥0)</option>
               <option value="historico">Histórico desde {histStartYear}</option>
             </select>
           </label>
@@ -265,7 +337,7 @@ export default function App() {
             </span>
             <input
               type="range"
-              min={2}
+              min={0}
               max={7}
               step={0.1}
               value={minMag}
@@ -295,7 +367,7 @@ export default function App() {
             <select
               className={inputClass}
               value={regionId}
-              onChange={(e) => selectRegion(e.target.value)}
+              onChange={(e) => setRegionId(e.target.value)}
             >
               <option value="">Todo el planeta</option>
               <optgroup label="América Latina">
@@ -355,7 +427,7 @@ export default function App() {
       )}
 
       {needsHistory && (
-        <div className="flex flex-wrap items-end gap-3 rounded-2xl border border-ink-800 bg-ink-900/50 p-3">
+        <div className="flex flex-wrap items-end gap-3 rounded-2xl border border-ink-800 bg-ink-900/40 backdrop-blur-md p-3">
           <label className="flex flex-col gap-1">
             <span className="text-[11px] uppercase tracking-wider text-slate-500">
               Catálogo desde
@@ -436,7 +508,7 @@ export default function App() {
       )}
 
       {active.loading && (
-        <div className="rounded-2xl border border-ink-800 bg-ink-900/50 p-4">
+        <div className="rounded-2xl border border-ink-800 bg-ink-900/40 backdrop-blur-md p-4">
           <Spinner
             label={
               active.progress
@@ -467,16 +539,33 @@ export default function App() {
       <main className="pb-8">
         {tab === "mapa" && (
           <div className="space-y-3">
-            <MapView
-              quakes={filtered}
-              colorBy={colorBy}
-              showHeat={showHeat}
-              showRegions={showRegions}
-              selectedRegionId={regionId || null}
-              onSelectRegion={(id) => selectRegion(id ?? "")}
-              focus={focus}
-              className="h-[calc(100vh-320px)] min-h-[420px]"
-            />
+            {/* Layout: mapa + live feed lateral (si está activo) */}
+            <div className={`flex gap-3 ${showLiveFeed ? "items-start" : ""}`}>
+              <div className={showLiveFeed ? "flex-1 min-w-0" : "w-full"}>
+                <MapView
+                  now={now}
+                  quakes={quakesForMap}
+                  colorBy={colorBy}
+                  showHeat={showHeat}
+                  showRegions={showRegions}
+                  selectedRegionId={regionId || null}
+                  onSelectRegion={(id) => setRegionId(id ?? "")}
+                  focus={focus}
+                  className="h-[calc(100vh-320px)] min-h-[420px]"
+                  selectedQuake={selectedQuake}
+                  onSelectQuake={(q) => (q ? focusOn(q) : setSelectedQuake(null))}
+                  onOpenIntensity={(q) => setIntensityQuake(q)}
+                />
+              </div>
+              {showLiveFeed && (
+                <LiveFeed
+                  quakes={live.quakes}
+                  now={now}
+                  onFocus={focusOn}
+                  className="w-72 shrink-0 h-[calc(100vh-320px)] min-h-[420px] overflow-y-auto"
+                />
+              )}
+            </div>
             {decadas.length > 1 && (
               <div className="flex flex-wrap items-center gap-1.5 text-xs">
                 <span className="mr-1 text-[11px] uppercase tracking-wider text-slate-500">
@@ -520,13 +609,7 @@ export default function App() {
                       return (
                         <button
                           key={m}
-                          onClick={() =>
-                            setClasesOcultas((prev) =>
-                              prev.includes(m)
-                                ? prev.filter((x) => x !== m)
-                                : [...prev, m],
-                            )
-                          }
+                          onClick={() => toggleClaseOculta(m)}
                           title={
                             oculta ? "Mostrar esta clase" : "Ocultar esta clase"
                           }
@@ -562,10 +645,7 @@ export default function App() {
               </span>
               {(clasesOcultas.length > 0 || decada !== null) && (
                 <button
-                  onClick={() => {
-                    setClasesOcultas([]);
-                    setDecada(null);
-                  }}
+                  onClick={resetFiltros}
                   className="text-slate-400 underline underline-offset-2 hover:text-slate-200"
                 >
                   Quitar filtros
@@ -590,8 +670,8 @@ export default function App() {
 
         <Suspense fallback={<Spinner label="Cargando módulo…" />}>
           {tab === "analisis" && <Analytics quakes={filtered} />}
-          {tab === "pronostico" && <Forecast quakes={hist.quakes} />}
-          {tab === "intensidad" && <Hazard quakes={hist.quakes} />}
+          {tab === "pronostico" && <Forecast quakes={hist.quakes} now={now} />}
+          {tab === "intensidad" && <Hazard quakes={hist.quakes} now={now} />}
           {tab === "almacen" && <Warehouse quakes={hist.quakes} />}
           {tab === "aprender" && <Learn />}
         </Suspense>
@@ -608,6 +688,15 @@ export default function App() {
         <QuakeIntensityPanel
           quake={intensityQuake}
           onClose={() => setIntensityQuake(null)}
+        />
+      )}
+
+      {/* Panel de alertas sísmicas */}
+      {showAlerts && (
+        <AlertPanel
+          alerts={alerts}
+          onClose={() => setShowAlerts(false)}
+          onFocus={focusOn}
         />
       )}
     </div>
