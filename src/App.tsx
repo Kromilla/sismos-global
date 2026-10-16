@@ -611,6 +611,7 @@ export default function App() {
               selectedRegionId={regionId || null}
               onSelectRegion={(id) => selectRegion(id ?? "")}
               focus={focus}
+              now={now}
               className="h-[calc(100vh-320px)] min-h-[420px]"
             />
             {decadas.length > 1 && (
@@ -720,7 +721,7 @@ export default function App() {
 
         <Suspense fallback={<Spinner label={t.loadingModule} />}>
           {tab === "analisis" && <Analytics quakes={filtered} />}
-          {tab === "pronostico" && <Forecast quakes={hist.quakes} />}
+          {tab === "pronostico" && <Forecast quakes={hist.quakes} now={now} />}
           {tab === "intensidad" && <Hazard quakes={hist.quakes} />}
           {tab === "almacen" && <Warehouse quakes={hist.quakes} />}
           {tab === "aprender" && <Learn />}

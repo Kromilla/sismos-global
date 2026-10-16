@@ -106,10 +106,23 @@ export default function Hazard({ quakes }: { quakes: Quake[] }) {
     [applyBias, score],
   );
 
-  const [psha, setPsha] = useState<PshaResult | null>(null);
-  const [isComputing, setIsComputing] = useState(false);
+  const [pshaState, setPshaState] = useState<{
+    key: string;
+    result: PshaResult | null;
+  } | null>(null);
   const workerRef = useRef<Worker | null>(null);
   const reqIdRef = useRef(0);
+
+  const jobKey = useMemo(
+    () =>
+      model
+        ? `${city.id}|${ipeId}|${bias}|${model.gr.mc}|${model.gr.b}|${model.mmax}|${model.years}|${model.cluster.background.length}`
+        : null,
+    [model, city.id, ipeId, bias],
+  );
+
+  const psha = pshaState?.result ?? null;
+  const isComputing = jobKey !== null && pshaState?.key !== jobKey;
 
   useEffect(() => {
     workerRef.current = new PshaWorker();
@@ -117,17 +130,18 @@ export default function Hazard({ quakes }: { quakes: Quake[] }) {
   }, []);
 
   useEffect(() => {
-    if (!model) return;
+    if (!model || !jobKey) return;
     const id = ++reqIdRef.current;
-    setIsComputing(true);
 
     const worker = workerRef.current;
     if (!worker) return;
 
     const handleMessage = (e: MessageEvent) => {
       if (e.data.id === id) {
-        if (!e.data.error) setPsha(e.data.result);
-        setIsComputing(false);
+        setPshaState((prev) => ({
+          key: jobKey,
+          result: e.data.error ? (prev?.result ?? null) : e.data.result,
+        }));
         worker.removeEventListener("message", handleMessage);
       }
     };
@@ -153,7 +167,7 @@ export default function Hazard({ quakes }: { quakes: Quake[] }) {
     return () => {
       worker.removeEventListener("message", handleMessage);
     };
-  }, [model, city, ipeId, bias]);
+  }, [model, jobKey, city, ipeId, bias]);
 
   const scatterData = useMemo(() => {
     const rs = score?.residuals ?? [];

@@ -237,18 +237,26 @@ function ScoreBar({ score }: { score: number }) {
 
 // ─── Componente principal ────────────────────────────────────────────────────
 
-export default function Forecast({ quakes }: { quakes: Quake[] }) {
+export default function Forecast({
+  quakes,
+  now: nowProp,
+}: {
+  quakes: Quake[];
+  now?: number;
+}) {
   const [regionId, setRegionId] = useState<string>("co-caribe");
+  const [fallbackNow] = useState(() => Date.now());
+  const now = nowProp ?? fallbackNow;
 
   const ranking = useMemo(() => {
     const out: RegionForecast[] = [];
     for (const region of ALL_REGIONS) {
       const subset = quakes.filter((q) => inBbox(q.lat, q.lon, region.bbox));
-      const f = buildRegionForecast(region, subset);
+      const f = buildRegionForecast(region, subset, now);
       if (f) out.push(f);
     }
     return out.sort((a, b) => b.score - a.score);
-  }, [quakes]);
+  }, [quakes, now]);
 
   const forecast = useMemo(
     () => ranking.find((f) => f.region.id === regionId) ?? ranking[0] ?? null,
@@ -258,9 +266,9 @@ export default function Forecast({ quakes }: { quakes: Quake[] }) {
   const bt = useMemo(() => {
     if (!forecast) return null;
     const subset = forecast.quakes;
-    const split = Date.now() - 5 * 365.25 * DAY_MS;
+    const split = now - 5 * 365.25 * DAY_MS;
     return backtest(subset, split);
-  }, [forecast]);
+  }, [forecast, now]);
 
   if (!forecast)
     return (

@@ -56,6 +56,8 @@ interface Props {
   className?: string;
   /** Anima con anillos los sismos de las últimas horas. */
   echo?: boolean;
+  /** Instante de referencia (epoch ms) para evitar lecturas impuras en render. */
+  now?: number;
 }
 
 function HeatLayer({ quakes, enabled }: { quakes: Quake[]; enabled: boolean }) {
@@ -135,8 +137,11 @@ export default function MapView({
   focus = null,
   className = "",
   echo = true,
+  now: nowProp,
 }: Props) {
   const [zoom, setZoom] = useState(2);
+  const [fallbackNow] = useState(() => Date.now());
+  const now = nowProp ?? fallbackNow;
   // Dibujamos los más fuertes al final para que queden por encima. Si hay
   // demasiados, se recortan por magnitud: 60.000 círculos ahogan el canvas.
   const { ordered, hidden } = useMemo(() => {
@@ -158,12 +163,12 @@ export default function MapView({
 
   const ecos = useMemo(() => {
     if (!echo) return [];
-    const desde = Date.now() - ECHO_HORAS * 3600_000;
+    const desde = now - ECHO_HORAS * 3600_000;
     return quakes
       .filter((q) => q.time >= desde)
       .sort((a, b) => b.mag - a.mag)
       .slice(0, MAX_ECOS);
-  }, [quakes, echo]);
+  }, [quakes, echo, now]);
 
   return (
     <div
@@ -243,7 +248,7 @@ export default function MapView({
                   </div>
                   <div className="text-slate-200">{q.place}</div>
                   <div className="text-slate-400">
-                    {fmtDateTime(q.time)} · {fmtAgo(q.time)}
+                    {fmtDateTime(q.time)} · {fmtAgo(q.time, now)}
                   </div>
                   <div className="text-slate-400">
                     Profundidad {q.depth.toFixed(0)} km · {q.lat.toFixed(2)},{" "}
@@ -258,7 +263,7 @@ export default function MapView({
                     target="_blank"
                     rel="noreferrer"
                   >
-                    Ficha USGS
+                    Ficha {q.source ?? "USGS"}
                   </a>
                 </div>
               </Popup>

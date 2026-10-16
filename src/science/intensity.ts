@@ -178,7 +178,8 @@ export function radiusForMmi(
   depthKm = 10,
   ipe: (m: number, r: number) => number = mmiAllen2012,
 ): number {
-  let lo = 1;
+  if (ipe(mag, hypocentralKm(0, depthKm)) < targetMmi) return 0;
+  let lo = 0;
   let hi = 1500;
   for (let i = 0; i < 60; i++) {
     const mid = (lo + hi) / 2;

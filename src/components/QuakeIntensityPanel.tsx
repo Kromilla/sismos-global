@@ -60,7 +60,7 @@ export default function QuakeIntensityPanel({ quake, onClose }: Props) {
   return (
     /* Overlay */
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center sm:items-center"
+      className="fixed inset-0 z-[1100] flex items-end justify-center sm:items-center"
       onClick={onClose}
     >
       {/* Fondo difuminado */}
