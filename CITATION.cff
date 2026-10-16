@@ -1,0 +1,32 @@
+cff-version: 1.2.0
+message: "If you use this software in academic, educational, or engineering work, please cite it as below."
+title: "Sismos Global: Browser-Native Computational Seismology, PSHA, ETAS Forecasting & DuckDB-WASM Analytics"
+type: software
+authors:
+  - given-names: "Carlos"
+    alias: "Kromilla"
+version: 1.0.0
+date-released: "2026-10-16"
+license: MIT
+repository-code: "https://github.com/Kromilla/sismos-global"
+url: "https://github.com/Kromilla/sismos-global"
+keywords:
+  - seismology
+  - earthquake-catalog
+  - psha
+  - etas
+  - gutenberg-richter
+  - omori-utsu
+  - duckdb-wasm
+  - fdsn
+  - webassembly
+  - typescript
+abstract: >-
+  Browser-native computational seismology platform integrating 8 global FDSN
+  seismic networks (USGS, EMSC, GeoNet, INGV, GFZ, IPGP, GA, SSN) and Colombia's
+  SGC historical catalog since 1610. Implements Gutenberg-Richter (Aki 1965 &
+  Weichert 1980), Gardner-Knopoff declustering, Omori-Utsu aftershock decay,
+  temporal ETAS forecasting, point-source Cornell-McGuire PSHA with Vs30 site
+  amplification in dedicated Web Workers, 2D Wadati-Benioff cross-sections,
+  synthetic accelerograms, and an in-browser DuckDB-WASM analytical star schema
+  with Apache Parquet export.

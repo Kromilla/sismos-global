@@ -392,3 +392,110 @@ export function inferTectonicRegime(quake: {
     mechanismEn: "Phase transformation / deep slab compression",
   };
 }
+
+export interface WaveArrivals {
+  pSec: number;
+  sSec: number;
+  surfaceSec: number;
+  warningLeadSec: number;
+}
+
+/**
+ * Estima los tiempos de llegada de las ondas P, S y superficiales (en segundos desde el origen)
+ * usando velocidades efectivas de corteza/manto superior tipo IASP91.
+ */
+export function estimateWaveArrivals(
+  rhypoKm: number,
+  depthKm = 15,
+): WaveArrivals {
+  const r = Math.max(rhypoKm, 1);
+  const mantleWeight = clamp((Math.max(depthKm, r * 0.25) - 35) / 250, 0, 1);
+  const vp = 6.1 + 0.85 * mantleWeight; // 6.1 a 6.95 km/s
+  const vs = 3.55 + 0.5 * mantleWeight; // 3.55 a 4.05 km/s
+  const pSec = r / vp;
+  const sSec = r / vs;
+  const surfaceSec = r / 3.1;
+  return {
+    pSec,
+    sSec,
+    surfaceSec,
+    warningLeadSec: Math.max(0, sSec - pSec),
+  };
+}
+
+export interface SyntheticWaveform {
+  samples: number[];
+  durationSec: number;
+  pRatio: number;
+  sRatio: number;
+}
+
+/**
+ * Genera una traza sintética determinista (envolvente de Saragoni–Hart / Boore)
+ * modulada por magnitud, distancia hipocentral y amplificación de suelo (Vs30).
+ */
+export function buildSyntheticWaveform(
+  mag: number,
+  rhypoKm: number,
+  depthKm = 15,
+  siteDeltaMmi = 0,
+  count = 140,
+): SyntheticWaveform {
+  const arrivals = estimateWaveArrivals(rhypoKm, depthKm);
+  const codaDuration = Math.max(
+    12,
+    8 + (mag - 4) * 7 + siteDeltaMmi * 8 + rhypoKm * 0.05,
+  );
+  const prePad = Math.max(2, arrivals.pSec * 0.15);
+  const durationSec = arrivals.sSec + codaDuration;
+  const tStart = Math.max(0, arrivals.pSec - prePad);
+  const totalWindow = Math.max(8, durationSec - tStart);
+
+  const pRatio = clamp((arrivals.pSec - tStart) / totalWindow, 0.05, 0.75);
+  const sRatio = clamp(
+    (arrivals.sSec - tStart) / totalWindow,
+    pRatio + 0.06,
+    0.88,
+  );
+
+  const raw: number[] = [];
+  let maxAbs = 1e-6;
+  const tauP = Math.max(1.2, (arrivals.sSec - arrivals.pSec) * 0.45);
+  const tauS = Math.max(2.5, (mag - 3.5) * 2.2 + siteDeltaMmi * 2.8);
+
+  for (let i = 0; i < count; i++) {
+    const u = i / Math.max(1, count - 1);
+    const t = tStart + u * totalWindow;
+
+    let env = 0.015;
+    if (t >= arrivals.pSec) {
+      const dtP = t - arrivals.pSec;
+      env += 0.24 * (dtP / (0.35 + dtP)) * Math.exp(-dtP / tauP);
+    }
+    if (t >= arrivals.sSec) {
+      const dtS = t - arrivals.sSec;
+      const sEnv =
+        1.0 * Math.pow(dtS / tauS, 0.65) * Math.exp(-dtS / (tauS * 1.15));
+      env += sEnv * (1 + siteDeltaMmi * 0.25);
+    }
+
+    // Oscilación determinista multifrecuencia (onda P más aguda, S/coda más grave en suelo blando)
+    const freqShift = t < arrivals.sSec ? 1.55 : 1.0 - siteDeltaMmi * 0.15;
+    const carrier =
+      0.52 * Math.sin(i * 1.73 * freqShift + mag) +
+      0.33 * Math.sin(i * 3.17 * freqShift + depthKm * 0.1) +
+      0.15 * Math.cos(i * 5.09 * freqShift);
+
+    const val = env * carrier;
+    raw.push(val);
+    if (Math.abs(val) > maxAbs) maxAbs = Math.abs(val);
+  }
+
+  return {
+    samples: raw.map((v) => v / maxAbs),
+    durationSec: totalWindow,
+    pRatio,
+    sRatio,
+  };
+}
+

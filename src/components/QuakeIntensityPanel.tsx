@@ -5,6 +5,8 @@ import {
   DEFAULT_IPE,
   IPE_MODELS,
   SITE_CLASSES,
+  buildSyntheticWaveform,
+  estimateWaveArrivals,
   hypocentralKm,
   inferTectonicRegime,
   mmiColor,
@@ -105,6 +107,32 @@ export default function QuakeIntensityPanel({
   const customMmi = mmiFnWithSite(quake.mag, customRhypo);
   const customPgaPctG = pgaToG(mmiToPga(customMmi)) * 100;
   const customLvl = mmiLevel(customMmi);
+  const arrivals = useMemo(
+    () => estimateWaveArrivals(customRhypo, quake.depth),
+    [customRhypo, quake.depth],
+  );
+  const waveform = useMemo(
+    () =>
+      buildSyntheticWaveform(
+        quake.mag,
+        customRhypo,
+        quake.depth,
+        site.deltaMmi,
+      ),
+    [quake.mag, customRhypo, quake.depth, site.deltaMmi],
+  );
+  const waveformPath = useMemo(() => {
+    const w = 520;
+    const h = 52;
+    const mid = h / 2;
+    return waveform.samples
+      .map((v, i) => {
+        const x = (i / Math.max(1, waveform.samples.length - 1)) * w;
+        const y = mid - v * (mid - 4);
+        return `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`;
+      })
+      .join(" ");
+  }, [waveform]);
   const srlKm = wellsCoppersmithLength(quake.mag);
   const m0 = seismicMomentNm(quake.mag);
   const m0Exp = Math.floor(Math.log10(m0));
@@ -351,6 +379,102 @@ export default function QuakeIntensityPanel({
               <span className="text-xs text-slate-400">{customLvl.label}</span>
             </div>
           </div>
+
+          {/* Tiempos de llegada P/S + Sismograma sintético SVG */}
+          <div className="rounded-xl border border-slate-800/90 bg-slate-900/70 px-3 py-2">
+            <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2 text-[11px]">
+              <div className="flex flex-wrap items-center gap-3 text-slate-400">
+                <span>
+                  <b className="text-sky-400">P:</b>{" "}
+                  <span className="font-mono text-slate-200">
+                    +{arrivals.pSec.toFixed(1)} s
+                  </span>
+                </span>
+                <span>
+                  <b className="text-amber-400">S:</b>{" "}
+                  <span className="font-mono text-slate-200">
+                    +{arrivals.sSec.toFixed(1)} s
+                  </span>
+                </span>
+                <span
+                  title={
+                    en
+                      ? "Lead time between P-wave detection and destructive S-wave arrival"
+                      : "Margen entre la detección de la onda P y la llegada de la onda S destructiva"
+                  }
+                >
+                  ⚡ {en ? "EEW window (S−P):" : "Ventana alerta (S−P):"}{" "}
+                  <b className="font-mono text-emerald-400">
+                    {arrivals.warningLeadSec.toFixed(1)} s
+                  </b>
+                </span>
+              </div>
+              <span className="text-[10px] text-slate-500">
+                {en
+                  ? `Synthetic accelerogram (~${waveform.durationSec.toFixed(0)} s)`
+                  : `Acelerograma sintético (~${waveform.durationSec.toFixed(0)} s)`}
+              </span>
+            </div>
+            <svg
+              viewBox="0 0 520 52"
+              className="h-12 w-full overflow-visible"
+              role="img"
+              aria-label={
+                en ? "Synthetic seismic waveform" : "Traza sísmica sintética"
+              }
+            >
+              <line
+                x1={0}
+                y1={26}
+                x2={520}
+                y2={26}
+                stroke="#1e293b"
+                strokeDasharray="2 2"
+              />
+              <line
+                x1={waveform.pRatio * 520}
+                y1={2}
+                x2={waveform.pRatio * 520}
+                y2={50}
+                stroke="#38bdf8"
+                strokeWidth={1}
+                strokeDasharray="3 2"
+              />
+              <text
+                x={waveform.pRatio * 520 + 4}
+                y={11}
+                fill="#38bdf8"
+                fontSize="9"
+                fontFamily="ui-monospace, monospace"
+              >
+                P
+              </text>
+              <line
+                x1={waveform.sRatio * 520}
+                y1={2}
+                x2={waveform.sRatio * 520}
+                y2={50}
+                stroke="#f59e0b"
+                strokeWidth={1}
+                strokeDasharray="3 2"
+              />
+              <text
+                x={waveform.sRatio * 520 + 4}
+                y={11}
+                fill="#f59e0b"
+                fontSize="9"
+                fontFamily="ui-monospace, monospace"
+              >
+                S
+              </text>
+              <path
+                d={waveformPath}
+                fill="none"
+                stroke={mmiColor(customMmi)}
+                strokeWidth={1.5}
+              />
+            </svg>
+          </div>
         </div>
 
         {/* Modelo usado */}
@@ -383,7 +507,17 @@ export default function QuakeIntensityPanel({
                   return (
                     <tr
                       key={r.city.id}
-                      className="border-t border-slate-800/60 hover:bg-slate-800/30 transition"
+                      onClick={() =>
+                        setCustomDistKm(
+                          Math.min(600, Math.max(0, Math.round(r.distKm / 5) * 5)),
+                        )
+                      }
+                      title={
+                        en
+                          ? "Click to simulate wave arrivals at this distance"
+                          : "Haz clic para simular las ondas a esta distancia"
+                      }
+                      className="cursor-pointer border-t border-slate-800/60 hover:bg-slate-800/30 transition"
                     >
                       <td className="px-4 py-2">
                         <span className="text-slate-200">{r.city.name}</span>

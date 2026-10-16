@@ -1,7 +1,6 @@
 import {
   Suspense,
   lazy,
-  useCallback,
   useEffect,
   useMemo,
   useState,
@@ -68,7 +67,7 @@ type Tab =
   | "almacen"
   | "aprender";
 
-const TAB_IDS = new Set<Tab>([
+const TABS_ORDER: Tab[] = [
   "mapa",
   "eventos",
   "analisis",
@@ -76,7 +75,9 @@ const TAB_IDS = new Set<Tab>([
   "intensidad",
   "almacen",
   "aprender",
-]);
+];
+
+const TAB_IDS = new Set<Tab>(TABS_ORDER);
 
 const CATALOG_SOURCES = new Set<CatalogSource>([
   "USGS",
@@ -144,6 +145,8 @@ export default function App() {
   const [intensityQuake, setIntensityQuake] = useState<Quake | null>(null);
   const [ringQuake, setRingQuake] = useState<Quake | null>(null);
   const [showAlertsMenu, setShowAlertsMenu] = useState(false);
+  const [cmdOpen, setCmdOpen] = useState(false);
+  const [cmdQuery, setCmdQuery] = useState("");
   const [tlPlaying, setTlPlaying] = useState(false);
   const [tlProgress, setTlProgress] = useState(100);
   const [tlSpeed, setTlSpeed] = useState<1 | 5 | 20>(5);
@@ -182,7 +185,43 @@ export default function App() {
     return () => window.clearInterval(id);
   }, [tlPlaying, tlSpeed]);
 
-  const applyFromUrl = useCallback((params: URLSearchParams) => {
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setCmdOpen((v) => !v);
+        setCmdQuery("");
+        return;
+      }
+      if (e.key === "Escape" && cmdOpen) {
+        setCmdOpen(false);
+        return;
+      }
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (
+        tag === "INPUT" ||
+        tag === "TEXTAREA" ||
+        tag === "SELECT" ||
+        e.metaKey ||
+        e.ctrlKey ||
+        e.altKey
+      ) {
+        return;
+      }
+      const num = Number(e.key);
+      if (num >= 1 && num <= 7) {
+        setTab(TABS_ORDER[num - 1]);
+      } else if (e.key.toLowerCase() === "p") {
+        setShowPlates((v) => !v);
+      } else if (e.key.toLowerCase() === "l") {
+        setLang((prev) => (prev === "es" ? "en" : "es"));
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [cmdOpen]);
+
+  const applyFromUrl = (params: URLSearchParams) => {
     const langParam = params.get("lang");
     if (langParam === "en" || langParam === "es") setLang(langParam);
 
@@ -220,7 +259,7 @@ export default function App() {
     if (params.get("plates") === "1") setShowPlates(true);
     if (params.get("tsunami") === "1") setOnlyTsunami(true);
     if (params.get("felt") === "1") setOnlyFelt(true);
-  }, []);
+  };
 
   const shareState = useMemo(
     () => ({
@@ -655,6 +694,34 @@ export default function App() {
           >
             {t.refresh}
           </button>
+          <button
+            type="button"
+            onClick={() => {
+              setCmdOpen(true);
+              setCmdQuery("");
+            }}
+            title={
+              lang === "en"
+                ? "Command palette & shortcuts (Ctrl+K / ⌘K)"
+                : "Paleta de comandos y atajos (Ctrl+K / ⌘K)"
+            }
+            className="rounded-lg border border-ink-700 bg-ink-800 px-2.5 py-1.5 font-mono text-xs text-slate-300 transition hover:border-sky-500/50 hover:text-white"
+          >
+            ⌘K
+          </button>
+          <a
+            href="https://github.com/Kromilla/sismos-global"
+            target="_blank"
+            rel="noreferrer"
+            title={
+              lang === "en"
+                ? "Open-source repository on GitHub (MIT)"
+                : "Repositorio Open Source en GitHub (MIT)"
+            }
+            className="flex items-center gap-1 rounded-lg border border-amber-500/40 bg-amber-500/10 px-2.5 py-1.5 text-xs font-medium text-amber-300 transition hover:bg-amber-500/20"
+          >
+            ★ GitHub
+          </a>
         </div>
       </header>
 
@@ -1251,6 +1318,145 @@ export default function App() {
           userLocation={geo.coords}
           lang={lang}
         />
+      )}
+      {cmdOpen && (
+        <div
+          className="fixed inset-0 z-[1300] flex items-start justify-center bg-slate-950/75 pt-20 backdrop-blur-sm"
+          onClick={() => setCmdOpen(false)}
+        >
+          <div
+            className="w-full max-w-lg overflow-hidden rounded-2xl border border-ink-700 bg-ink-900 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="border-b border-ink-800 p-3">
+              <input
+                type="search"
+                autoFocus
+                value={cmdQuery}
+                onChange={(e) => setCmdQuery(e.target.value)}
+                placeholder={
+                  lang === "en"
+                    ? "Jump to tab, seismic zone, or action…"
+                    : "Ir a pestaña, zona sísmica o acción…"
+                }
+                className={`${inputClass} w-full`}
+              />
+            </div>
+            <div className="max-h-80 overflow-y-auto p-2 text-xs">
+              <div className="px-2 py-1 text-[10px] uppercase tracking-wider text-slate-500">
+                {lang === "en"
+                  ? "Tabs & Quick Actions (Keys 1–7, P, L)"
+                  : "Pestañas y acciones rápidas (Teclas 1–7, P, L)"}
+              </div>
+              {t.tabs
+                .filter((tb) =>
+                  `${tb.label} ${tb.hint}`
+                    .toLowerCase()
+                    .includes(cmdQuery.trim().toLowerCase()),
+                )
+                .map((tb, idx) => (
+                  <button
+                    key={tb.id}
+                    type="button"
+                    onClick={() => {
+                      setTab(tb.id);
+                      setCmdOpen(false);
+                    }}
+                    className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-slate-200 hover:bg-ink-800"
+                  >
+                    <span>
+                      <b>{tb.label}</b>{" "}
+                      <span className="text-slate-500">· {tb.hint}</span>
+                    </span>
+                    <kbd className="rounded border border-ink-700 bg-ink-950 px-1.5 py-0.5 font-mono text-[10px] text-slate-400">
+                      {idx + 1}
+                    </kbd>
+                  </button>
+                ))}
+              <button
+                type="button"
+                onClick={() => {
+                  setShowPlates((v) => !v);
+                  setTab("mapa");
+                  setCmdOpen(false);
+                }}
+                className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-slate-200 hover:bg-ink-800"
+              >
+                <span>
+                  {lang === "en"
+                    ? "Toggle tectonic plate boundaries"
+                    : "Mostrar/ocultar límites de placas tectónicas"}
+                </span>
+                <kbd className="rounded border border-ink-700 bg-ink-950 px-1.5 py-0.5 font-mono text-[10px] text-slate-400">
+                  P
+                </kbd>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setLang((prev) => (prev === "es" ? "en" : "es"));
+                  setCmdOpen(false);
+                }}
+                className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-slate-200 hover:bg-ink-800"
+              >
+                <span>
+                  {lang === "en"
+                    ? "Switch language to Español"
+                    : "Cambiar idioma a English"}
+                </span>
+                <kbd className="rounded border border-ink-700 bg-ink-950 px-1.5 py-0.5 font-mono text-[10px] text-slate-400">
+                  L
+                </kbd>
+              </button>
+              <div className="mt-2 px-2 py-1 text-[10px] uppercase tracking-wider text-slate-500">
+                {lang === "en"
+                  ? "Seismic Zones (49 global regions)"
+                  : "Zonas sismogénicas (49 regiones del planeta)"}
+              </div>
+              {ALL_REGIONS.filter((r) =>
+                `${r.name} ${r.country} ${r.id}`
+                  .toLowerCase()
+                  .includes(cmdQuery.trim().toLowerCase()),
+              )
+                .slice(0, 12)
+                .map((r) => (
+                  <button
+                    key={r.id}
+                    type="button"
+                    onClick={() => {
+                      selectRegion(r.id);
+                      setTab("mapa");
+                      setCmdOpen(false);
+                    }}
+                    className="flex w-full items-center justify-between rounded-lg px-3 py-1.5 text-left text-slate-300 hover:bg-ink-800"
+                  >
+                    <span>
+                      {r.name}{" "}
+                      <span className="text-slate-500">— {r.country}</span>
+                    </span>
+                    <span className="font-mono text-[10px] text-sky-400">
+                      ↗
+                    </span>
+                  </button>
+                ))}
+            </div>
+            <div className="flex items-center justify-between border-t border-ink-800 bg-ink-950/60 px-3 py-2 text-[11px] text-slate-500">
+              <span>
+                {lang === "en"
+                  ? "Press Esc to close · 1–7 to switch tabs"
+                  : "Pulsa Esc para cerrar · 1–7 para cambiar de pestaña"}
+              </span>
+              <a
+                href="https://github.com/Kromilla/sismos-global"
+                target="_blank"
+                rel="noreferrer"
+                className="text-amber-300 hover:underline"
+              >
+                ★ GitHub
+              </a>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
