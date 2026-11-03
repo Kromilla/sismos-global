@@ -1,0 +1,14 @@
+name: Feature request
+description: Suggest an idea or a new model/data source
+labels: [enhancement]
+body:
+  - type: textarea
+    attributes: { label: What problem does this solve? }
+    validations: { required: true }
+  - type: textarea
+    attributes:
+      {
+        label: Proposed solution,
+        description: Include references (papers,
+        data source docs) if relevant,
+      }
