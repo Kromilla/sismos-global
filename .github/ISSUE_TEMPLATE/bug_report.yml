@@ -1,0 +1,17 @@
+name: Bug report
+description: Something is broken
+labels: [bug]
+body:
+  - type: textarea
+    attributes:
+      {
+        label: What happened?,
+        description: Steps to reproduce,
+        tab,
+        filters and network used,
+      }
+    validations: { required: true }
+  - type: textarea
+    attributes: { label: Expected behavior }
+  - type: input
+    attributes: { label: Browser and OS }
