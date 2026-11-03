@@ -119,10 +119,13 @@ export default function Hazard({ quakes }: { quakes: Quake[] }) {
   useEffect(() => {
     if (!model) return;
     const id = ++reqIdRef.current;
-    setIsComputing(true);
+    const timer = setTimeout(() => setIsComputing(true), 0);
 
     const worker = workerRef.current;
-    if (!worker) return;
+    if (!worker) {
+      clearTimeout(timer);
+      return;
+    }
 
     const handleMessage = (e: MessageEvent) => {
       if (e.data.id === id) {
@@ -151,6 +154,7 @@ export default function Hazard({ quakes }: { quakes: Quake[] }) {
     });
 
     return () => {
+      clearTimeout(timer);
       worker.removeEventListener("message", handleMessage);
     };
   }, [model, city, ipeId, bias]);
