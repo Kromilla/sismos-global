@@ -154,8 +154,7 @@ global: una comprobación gratis de que la tubería de datos no miente.
   un M≥7 pasa de miles de años a ~117, y la intensidad de diseño de Santa Marta sube de MMI V a
   MMI VII (~20 % g), ya en el orden de magnitud de la NSR-10. Fuera de Colombia no hay equivalente:
   el resto del mundo depende del catálogo instrumental del USGS.
-- El PSHA es síncrono y con el catálogo mundial cargado tarda uno o dos segundos por ciudad.
-  Moverlo a un Web Worker es el siguiente paso de rendimiento.
+- El PSHA se ejecuta en un Web Worker; con el catálogo mundial cargado tarda uno o dos segundos por ciudad.
 - El PSHA no incluye efecto de sitio (tipo de suelo), que en ciudades como México DF o Bogotá
   cambia la respuesta por completo.
 - El ETAS se calibra por razón de ramificación, no por máxima verosimilitud completa.
