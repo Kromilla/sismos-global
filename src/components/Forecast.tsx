@@ -239,6 +239,7 @@ function ScoreBar({ score }: { score: number }) {
 
 export default function Forecast({ quakes }: { quakes: Quake[] }) {
   const [regionId, setRegionId] = useState<string>("co-caribe");
+  const [now] = useState(() => Date.now());
 
   const ranking = useMemo(() => {
     const out: RegionForecast[] = [];
@@ -258,9 +259,9 @@ export default function Forecast({ quakes }: { quakes: Quake[] }) {
   const bt = useMemo(() => {
     if (!forecast) return null;
     const subset = forecast.quakes;
-    const split = Date.now() - 5 * 365.25 * DAY_MS;
+    const split = now - 5 * 365.25 * DAY_MS;
     return backtest(subset, split);
-  }, [forecast]);
+  }, [forecast, now]);
 
   if (!forecast)
     return (
