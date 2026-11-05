@@ -73,7 +73,7 @@ export default function App() {
 
   const [tab, setTab] = useState<Tab>("mapa");
   const [source, setSource] = useState<"reciente" | "historico">("reciente");
-  const [minMag, setMinMag] = useState(2.5);
+  const [minMag, setMinMag] = useState(0);
   const [maxDepth, setMaxDepth] = useState(800);
   const [regionId, setRegionId] = useState<string>("");
   const [colorBy, setColorBy] = useState<"mag" | "depth">("mag");
@@ -98,9 +98,9 @@ export default function App() {
 
   const liveQuery: CatalogQuery = useMemo(
     () => ({
-      startTime: now - 30 * DAY_MS,
+      startTime: now - 7 * DAY_MS,
       endTime: now,
-      minMag: 2.5,
+      minMag: 0,
       bbox: WORLD_BBOX,
     }),
     [now],
@@ -254,7 +254,7 @@ export default function App() {
                 setSource(e.target.value as "reciente" | "historico")
               }
             >
-              <option value="reciente">Últimos 30 días (M≥2.5)</option>
+              <option value="reciente">Últimos 7 días (M≥0)</option>
               <option value="historico">Histórico desde {histStartYear}</option>
             </select>
           </label>
@@ -265,7 +265,7 @@ export default function App() {
             </span>
             <input
               type="range"
-              min={2}
+              min={0}
               max={7}
               step={0.1}
               value={minMag}
